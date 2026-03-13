@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ピクシブ百科事典ガチャ</title>
+<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="pcon" id="particles"></div>
+<div class="fov" id="flashO"></div>
+<div class="ra" id="raAnn"></div>
+
+<!-- レアカード豪華演出用オーバーレイ -->
+<div class="rare-overlay" id="rareOverlay">
+  <canvas id="rareCanvas"></canvas>
+  <div class="rare-text" id="rareText"></div>
+</div>
+
+<nav>
+  <div class="ni active" data-tab="gacha">ガチャ</div>
+  <div class="ni" data-tab="zukan">図鑑</div>
+  <div class="ni" data-tab="battle">バトル</div>
+  <div class="nhp" onclick="toggleHelp()">?</div>
+</nav>
+
+<!-- ガチャ画面 -->
+<div class="scr active" id="screen-gacha">
+  <div id="packView">
+    <div class="pk-info">
+      <div class="pk-cnt">本日のパック：<span class="num" id="pN">10</span> / 10</div>
+      <div class="pk-tm" id="pT">次の回復まで: 1:00</div>
+      <div class="pk-gp" id="pG">金パックまであと10回</div>
+      <div class="r18-toggle">
+        <label class="r18-label">
+          <span>R-18</span>
+          <input type="checkbox" id="r18Switch">
+          <span class="r18-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="pk-wrap" onclick="openPack()">
+      <img class="pk-img" src="pix.png" alt="パック">
+    </div>
+    <div class="pk-tap">▲ タップで開ける ▲</div>
+  </div>
+
+  <div id="cardViewer" style="display:none">
+    <div class="cv">
+      <div class="cv-nav">
+        <button class="cv-arr" id="cvPr" onclick="cvNav(-1)">‹</button>
+        <span class="cv-pg" id="cvPg">1/5</span>
+        <button class="cv-arr" id="cvNx" onclick="cvNav(1)">›</button>
+      </div>
+      <div class="cv-hint">左右スワイプ or &lt; &gt; でめくる</div>
+
+      <div class="cv-stage" id="cvStage">
+        <div class="cv-done-cards" id="cvDone"></div>
+        <div class="cv-back-cards" id="cvBacks"></div>
+        <div class="cv-front" id="cvM"></div>
+        <div class="cv-side-left" onclick="cvNav(-1)">‹</div>
+        <div class="cv-side-right" onclick="cvNav(1)">›</div>
+      </div>
+
+      <div class="cv-acts">
+        <button class="btn-bk" onclick="backToPack()">パック画面に戻る</button>
+        <div class="sh-row">
+          <button class="sh-cp" onclick="copyRes()">結果をコピー</button>
+          <button class="sh-x" onclick="shareRes()">𝕏 結果を共有</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 図鑑画面 -->
+<div class="scr" id="screen-zukan">
+  <div class="z-hd">
+    <div class="z-cnt" id="zCnt">0枚</div>
+    <div class="z-sort">
+      <button class="active" onclick="sZ('newest',this)">新着</button>
+      <button onclick="sZ('rarity',this)">レア度</button>
+      <button onclick="sZ('atk',this)">ATK</button>
+      <button onclick="sZ('name',this)">名前</button>
+    </div>
+  </div>
+  <div class="z-grid" id="zGrid"></div>
+  <div class="z-empty" id="zE">まだカードがありません。<br>ガチャを引いてみよう！</div>
+</div>
+
+<!-- バトル画面 (HP制ターンバトル) -->
+<div class="scr" id="screen-battle">
+  <div class="ba">
+    <!-- カード選択フェーズ -->
+    <div id="bSelectPhase">
+      <div class="ba-desc">カードを選んでHP制バトル！<br>ターン制で攻撃・防御・スキルを選択。勝てば相手のカードを獲得！</div>
+      <div class="ba-record" id="baRecord"></div>
+      <div id="bSelect" style="margin:16px 0">
+        <div style="font-size:.85rem;color:var(--dim);margin-bottom:10px">バトルに出すカードを選んでください：</div>
+        <div class="b-sel-grid" id="bSelGrid"></div>
+      </div>
+      <button class="btn-bt" id="battleBtn" onclick="startBattle()" disabled>バトル開始！</button>
+    </div>
+
+    <!-- バトルフィールド -->
+    <div id="bBattlePhase" style="display:none">
+      <div class="bf-field">
+        <!-- 相手側 -->
+        <div class="bf-side bf-enemy">
+          <div class="bf-label enemy-label">ENEMY</div>
+          <div class="bf-card-area">
+            <div class="bf-card-wrap" id="bfEnemyCard"></div>
+          </div>
+          <div class="bf-hp-area">
+            <div class="bf-name" id="bfEnemyName">---</div>
+            <div class="bf-hp-bar">
+              <div class="bf-hp-fill enemy-hp" id="bfEnemyHP" style="width:100%"></div>
+            </div>
+            <div class="bf-hp-text" id="bfEnemyHPText">HP: 100/100</div>
+          </div>
+        </div>
+
+        <!-- VS -->
+        <div class="bf-vs-divider">
+          <span class="bf-vs-text">VS</span>
+          <div class="bf-turn-indicator" id="bfTurn">ターン 1</div>
+        </div>
+
+        <!-- 自分側 -->
+        <div class="bf-side bf-player">
+          <div class="bf-label player-label">YOU</div>
+          <div class="bf-card-area">
+            <div class="bf-card-wrap" id="bfPlayerCard"></div>
+          </div>
+          <div class="bf-hp-area">
+            <div class="bf-name" id="bfPlayerName">---</div>
+            <div class="bf-hp-bar">
+              <div class="bf-hp-fill player-hp" id="bfPlayerHP" style="width:100%"></div>
+            </div>
+            <div class="bf-hp-text" id="bfPlayerHPText">HP: 100/100</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- アクション選択 -->
+      <div class="bf-actions" id="bfActions">
+        <button class="bf-act-btn act-atk" onclick="battleAction('attack')">
+          <span class="act-icon">⚔️</span>
+          <span class="act-label">攻撃</span>
+          <span class="act-desc">ATK依存ダメージ</span>
+        </button>
+        <button class="bf-act-btn act-def" onclick="battleAction('defend')">
+          <span class="act-icon">🛡️</span>
+          <span class="act-label">防御</span>
+          <span class="act-desc">ダメージ半減+反撃</span>
+        </button>
+        <button class="bf-act-btn act-skill" onclick="battleAction('skill')">
+          <span class="act-icon">✨</span>
+          <span class="act-label">スキル</span>
+          <span class="act-desc">大ダメージ(2T待機)</span>
+        </button>
+        <button class="bf-act-btn act-heal" onclick="battleAction('heal')">
+          <span class="act-icon">💚</span>
+          <span class="act-label">回復</span>
+          <span class="act-desc">DEF依存HP回復</span>
+        </button>
+      </div>
+
+      <!-- バトルログ -->
+      <div class="bf-log" id="bfLog"></div>
+
+      <!-- バトル結果 -->
+      <div class="bf-result" id="bfResult" style="display:none">
+        <div class="bf-result-text" id="bfResultText"></div>
+        <div class="bf-result-detail" id="bfResultDetail"></div>
+        <button class="btn-bt" onclick="endBattle()" style="margin-top:16px">戻る</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ヘルプ -->
+<div class="ho" id="helpO" onclick="if(event.target===this)toggleHelp()">
+  <div class="hc">
+    <button class="hx" onclick="toggleHelp()">✕</button>
+    <h2>ピクシブ百科事典ガチャについて</h2>
+    <h3>概要</h3>
+    <p>ピクシブ百科事典の記事をカード風にランダムで表示します。記事の充実度・人気度が高いほど高レアリティのカードが手に入ります。</p>
+    <p>1パック5枚入り。10回開封でSR以上確定の金パックを開封できます。パックは1分で1つ補充され、最大10個まで保持できます。</p>
+    <p>カードをタップするとピクシブ百科事典の記事にジャンプできます。</p>
+    <h3>レア度</h3>
+    <table class="ht">
+      <tr><th>レア</th><th>意味</th><th>出現率</th></tr>
+      <tr><td class="rc-lr">LR</td><td>レジェンドレア</td><td>0.3%</td></tr>
+      <tr><td class="rc-ur">UR</td><td>ウルトラレア</td><td>1.2%</td></tr>
+      <tr><td class="rc-ssr">SSR</td><td>スーパースペシャルレア</td><td>3.5%</td></tr>
+      <tr><td class="rc-sr">SR</td><td>スーパーレア</td><td>7%</td></tr>
+      <tr><td class="rc-r">R</td><td>レア</td><td>13%</td></tr>
+      <tr><td class="rc-uc">UC</td><td>アンコモン</td><td>25%</td></tr>
+      <tr><td class="rc-c">C</td><td>コモン</td><td>50%</td></tr>
+    </table>
+    <h3>ATK / DEF</h3>
+    <p>ATK（人気度）: 閲覧数ベース × レアリティ倍率。DEF（詳細度）: 文章量ベース × レアリティ倍率。</p>
+    <h3>バトルシステム</h3>
+    <p>HP制のターンバトル。毎ターン「攻撃」「防御」「スキル」「回復」から行動を選択します。</p>
+    <p>攻撃: ATK依存ダメージ。防御: ダメージ半減+反撃。スキル: 大ダメージ(使用後2T待機)。回復: DEF依存でHP回復。</p>
+    <p>勝利で相手のカードを獲得、敗北で自分のカードを没収されます。</p>
+    <h3>フレーバーテキスト</h3><p>SSR以上のカードに自動生成のフレーバーテキストが付きます。</p>
+    <h3>画像について</h3><p>カードに表示される画像はピクシブ百科事典の記事のメイン画像（OGP画像）を表示しています。</p>
+  </div>
+</div>
+
+<!-- 詳細モーダル -->
+<div class="do" id="detO" onclick="if(event.target===this)cDet()"></div>
+
+<!-- パック開封アニメーション -->
+<div class="po" id="packO"><img id="packOImg" src="pix.png" alt="opening"></div>
+
+<!-- 効果音 -->
+<audio id="sfxFlip" src="flip.mp3" preload="auto"></audio>
+
+<script src="app.js"></script>
+</body>
+</html>
