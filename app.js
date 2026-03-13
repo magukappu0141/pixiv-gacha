@@ -27,7 +27,7 @@ const FL = [
   "二次創作の可能性を無限に広げる、魔法の言葉。",
 ];
 
-let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false };
+let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false };
 try { const v = localStorage.getItem('pxg5'); if(v) S = {...S, ...JSON.parse(v)}; } catch(e) {}
 function save() { try { localStorage.setItem('pxg5', JSON.stringify(S)); } catch(e) {} }
 
@@ -77,7 +77,8 @@ async function fetchRandomArticles(count) {
   if (!PROXY_BASE) return await fetchFromDicDirectly(count, owned);
   try {
     const fetchCount = count + Math.min(owned.size, 20);
-    const resp = await fetch(`${PROXY_BASE}/random?count=${fetchCount}&r18=${S.r18 ? 1 : 0}`);
+    const r18val = S.r18only ? 2 : S.r18 ? 1 : 0;
+    const resp = await fetch(`${PROXY_BASE}/random?count=${fetchCount}&r18=${r18val}`);
     if (!resp.ok) throw new Error('Proxy error');
     const data = await resp.json();
     return (data.articles || []).filter(a => !owned.has(a.name)).slice(0, count);
@@ -326,15 +327,13 @@ function renderViewer() {
   document.getElementById('cvPr').disabled = ci === 0;
   document.getElementById('cvNx').disabled = ci === 4;
 
-  // 前面カードの高さを取得して裏カードに適用
   requestAnimationFrame(() => {
     const frontCard = document.querySelector('#cvM .card');
     const cardH = frontCard ? frontCard.offsetHeight : 460;
 
-    // 右側: 未開封カード（後ろに積まれている）
+    // 右側: 未開封カード
     const backs = document.getElementById('cvBacks'); backs.innerHTML = '';
-    const remaining = cur.slice(ci + 1);
-    remaining.slice(0, 4).forEach((c, i) => {
+    cur.slice(ci + 1).slice(0, 4).forEach((c, i) => {
       const el = document.createElement('div');
       el.className = `cv-back-card bk-${c.rar}`;
       el.style.cssText = `right:${i*6}px;top:${4+i*4}px;transform:rotate(${2+i*1.5}deg);opacity:${0.6-i*0.12};z-index:${4-i};height:${cardH}px;background:#1a1a2e;`;
@@ -342,14 +341,13 @@ function renderViewer() {
     });
 
     // 左側: 開封済みカード
-    const done = document.getElementById('cvDone'); done.innerHTML = '';
-    const opened = cur.slice(0, ci);
-    opened.slice(-4).reverse().forEach((c, i) => {
+    const done = document.getElementById('cvDone'); if(done){done.innerHTML = '';
+    cur.slice(0, ci).slice(-4).reverse().forEach((c, i) => {
       const el = document.createElement('div');
       el.className = `cv-done-card bk-${c.rar}`;
       el.style.cssText = `left:${i*6}px;top:${4+i*4}px;transform:rotate(${-2-i*1.5}deg);opacity:${0.6-i*0.12};z-index:${4-i};height:${cardH}px;background:#1a1a2e;`;
       done.appendChild(el);
-    });
+    });}
   });
 }
 
@@ -709,3 +707,145 @@ if (S.lt) {
   const r = Math.floor((Date.now() - S.lt) / 60000);
   if (r > 0 && S.pk < S.mx) { S.pk = Math.min(S.mx, S.pk + r); S.lt = Date.now(); save(); updPk(); }
 }
+
+// ============================================================
+// コナミコマンド R18オンリーモード
+// PC: ↑↑↓↓←→←→BA (キーボード)
+// スマホ: 上上下下左右左右スワイプ → A,Bボタン表示 → A,B順押し
+// ============================================================
+(function(){
+  const KONAMI_KEYS = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+  const KONAMI_SWIPES = ['up','up','down','down','left','right','left','right'];
+  let keySeq = [];
+  let swipeSeq = [];
+  let swStartX = 0, swStartY = 0;
+  let abPhase = false; // スマホ用: スワイプ完了後のA,B入力待ち
+
+  // キーボード版
+  document.addEventListener('keydown', function(e) {
+    // ガチャ画面でのみ有効（カードビューアー非表示時）
+    if (document.getElementById('cardViewer').style.display !== 'none') return;
+    if (document.querySelector('.ho.active') || document.querySelector('.do.active')) return;
+
+    const key = e.key.toLowerCase();
+    keySeq.push(e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' ? e.key : key);
+    if (keySeq.length > 10) keySeq.shift();
+
+    if (keySeq.length === 10 && keySeq.every((k, i) => k === KONAMI_KEYS[i])) {
+      keySeq = [];
+      activateR18Only();
+    }
+  });
+
+  // スマホ スワイプ検出
+  document.addEventListener('touchstart', function(e) {
+    if (abPhase) return;
+    swStartX = e.touches[0].clientX;
+    swStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  document.addEventListener('touchend', function(e) {
+    if (abPhase) return;
+    // カードビューアー表示中はスキップ（カードめくりと競合）
+    if (document.getElementById('cardViewer').style.display !== 'none') return;
+
+    const dx = e.changedTouches[0].clientX - swStartX;
+    const dy = e.changedTouches[0].clientY - swStartY;
+    const absDx = Math.abs(dx), absDy = Math.abs(dy);
+
+    if (absDx < 30 && absDy < 30) return; // タップは無視
+
+    let dir = '';
+    if (absDy > absDx) dir = dy < 0 ? 'up' : 'down';
+    else dir = dx > 0 ? 'right' : 'left';
+
+    swipeSeq.push(dir);
+    if (swipeSeq.length > 8) swipeSeq.shift();
+
+    if (swipeSeq.length === 8 && swipeSeq.every((d, i) => d === KONAMI_SWIPES[i])) {
+      swipeSeq = [];
+      showABButtons();
+    }
+  }, { passive: true });
+
+  function showABButtons() {
+    abPhase = true;
+    let abSeq = [];
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:999;display:flex;justify-content:center;align-items:center;gap:40px;';
+
+    const makeBtn = (label) => {
+      const btn = document.createElement('button');
+      btn.textContent = label;
+      btn.style.cssText = 'width:80px;height:80px;border-radius:50%;border:3px solid #fff;background:rgba(255,255,255,.1);color:#fff;font-size:2rem;font-weight:900;font-family:inherit;cursor:pointer;transition:.15s;';
+      btn.addEventListener('click', () => {
+        btn.style.background = 'rgba(255,215,0,.3)';
+        btn.style.borderColor = '#ffd700';
+        abSeq.push(label);
+        if (abSeq.length === 2) {
+          if (abSeq[0] === 'A' && abSeq[1] === 'B') {
+            overlay.remove();
+            abPhase = false;
+            activateR18Only();
+          } else {
+            abSeq = [];
+            overlay.remove();
+            abPhase = false;
+          }
+        }
+      });
+      return btn;
+    };
+
+    overlay.appendChild(makeBtn('A'));
+    overlay.appendChild(makeBtn('B'));
+
+    // ×ボタン
+    const close = document.createElement('button');
+    close.textContent = '✕';
+    close.style.cssText = 'position:absolute;top:20px;right:20px;background:none;border:none;color:rgba(255,255,255,.5);font-size:1.5rem;cursor:pointer;';
+    close.addEventListener('click', () => { overlay.remove(); abPhase = false; });
+    overlay.appendChild(close);
+
+    document.body.appendChild(overlay);
+  }
+
+  function activateR18Only() {
+    if (S.r18only) {
+      // 解除
+      S.r18only = false;
+      S.r18 = false;
+      save();
+      showKonamiNotification('R-18オンリーモード解除', '#0096fa');
+    } else {
+      // 発動
+      S.r18only = true;
+      S.r18 = true;
+      save();
+      showKonamiNotification('🔞 R-18 ONLY MODE 🔞', '#ff4757');
+    }
+    const sw = document.getElementById('r18Switch');
+    if (sw) sw.checked = S.r18;
+  }
+
+  function showKonamiNotification(text, color) {
+    const notif = document.createElement('div');
+    notif.textContent = text;
+    notif.style.cssText = `position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.8rem;font-weight:900;color:${color};z-index:1000;pointer-events:none;text-shadow:0 0 30px ${color};animation:konamiPop 2s ease forwards;white-space:nowrap;`;
+    document.body.appendChild(notif);
+    setTimeout(() => notif.remove(), 2000);
+  }
+
+  // CSS for konami animation
+  const style = document.createElement('style');
+  style.textContent = `@keyframes konamiPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.3)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.2)}40%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-55%) scale(1.1)}}`;
+  document.head.appendChild(style);
+
+  // R18オンリーモードのインジケーター
+  if (S.r18only) {
+    const ind = document.createElement('div');
+    ind.style.cssText = 'position:fixed;bottom:8px;left:8px;font-size:.6rem;color:rgba(255,71,87,.5);z-index:99;pointer-events:none;';
+    ind.textContent = '🔞 R18 ONLY';
+    document.body.appendChild(ind);
+  }
+})();

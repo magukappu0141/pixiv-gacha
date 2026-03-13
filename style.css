@@ -49,9 +49,9 @@ nav{position:sticky;top:0;z-index:100;background:rgba(14,14,14,.96);backdrop-fil
 .cv-side-left{left:-32px}.cv-side-right{right:-32px}
 .cv-side-left:hover,.cv-side-right:hover{color:rgba(255,255,255,.8)}
 .cv-back-cards{position:absolute;top:0;right:-8px;width:310px;pointer-events:none;z-index:1}
-.cv-back-card{position:absolute;width:310px;height:100%;border-radius:14px;background:#1a1a2e;overflow:hidden;transition:all .3s ease}
+.cv-back-card{position:absolute;width:310px;border-radius:14px;background:#1a1a2e;overflow:hidden;transition:all .3s ease}
 .cv-done-cards{position:absolute;top:0;left:-8px;width:310px;pointer-events:none;z-index:1}
-.cv-done-card{position:absolute;width:310px;height:100%;border-radius:14px;background:#1a1a2e;overflow:hidden;transition:all .3s ease}
+.cv-done-card{position:absolute;width:310px;border-radius:14px;background:#1a1a2e;overflow:hidden;transition:all .3s ease}
 .cv-front{position:relative;z-index:5;width:310px}
 
 /* ===== THE CARD ===== */
