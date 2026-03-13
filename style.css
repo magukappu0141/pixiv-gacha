@@ -75,7 +75,7 @@ nav{position:sticky;top:0;z-index:100;background:rgba(14,14,14,.96);backdrop-fil
 .c-nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800;font-size:1rem;color:#fff}
 .c-star{font-size:1.3rem;color:var(--goldb);opacity:.6;cursor:pointer;flex-shrink:0}
 .c-img{width:100%;aspect-ratio:310/220;background:#0f0f1e;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
-.c-img img{width:100%;height:100%;object-fit:cover;display:block}
+.c-img img{width:100%;height:100%;object-fit:cover;object-position:left center;display:block}
 .c-img .c-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;height:100%}
 .c-img .c-fallback .c-fname{font-size:1.3rem;font-weight:900;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.5)}
 .c-ibtn{position:absolute;bottom:10px;left:10px;width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.4);background:rgba(0,0,0,.6);color:rgba(255,255,255,.8);font-size:.78rem;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:700;z-index:3}
