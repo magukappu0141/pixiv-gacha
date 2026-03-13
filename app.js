@@ -42,7 +42,7 @@ function initR18Toggle() {
   sw.addEventListener('change', () => { S.r18 = sw.checked; save(); });
 }
 
-function determineRarity(views, contentLength) {
+function determineRarity(views, contentLength, illustCount) {
   const roll = Math.random() * 100;
   let baseRarity;
   if (roll < 0.3)       baseRarity = 'LR';
@@ -52,17 +52,38 @@ function determineRarity(views, contentLength) {
   else if (roll < 25)   baseRarity = 'R';
   else if (roll < 50)   baseRarity = 'UC';
   else                   baseRarity = 'C';
-  const qualityScore = views + contentLength / 5;
+
+  // 品質スコア = 閲覧数 + 記事文字数÷5 + イラスト投稿数×2
+  const ic = illustCount || 0;
+  const qualityScore = views + contentLength / 5 + ic * 2;
+
+  // イラスト投稿数が多い場合、レア度を上げるボーナス
+  // 10000件以上→1段階UP、50000件以上→2段階UP
+  let bonus = 0;
+  if (ic >= 50000) bonus = 2;
+  else if (ic >= 10000) bonus = 1;
+
+  // 品質が足りないと降格
   if (baseRarity === 'LR'  && qualityScore < 100000) baseRarity = 'UR';
   if (baseRarity === 'UR'  && qualityScore < 50000)  baseRarity = 'SSR';
   if (baseRarity === 'SSR' && qualityScore < 20000)  baseRarity = 'SR';
   if (baseRarity === 'SR'  && qualityScore < 5000)   baseRarity = 'R';
+
+  // イラスト投稿数ボーナスで昇格（LRは超えない）
+  const rarOrder = ['C','UC','R','SR','SSR','UR','LR'];
+  if (bonus > 0) {
+    const idx = rarOrder.indexOf(baseRarity);
+    const newIdx = Math.min(idx + bonus, 6); // LR=6が上限
+    baseRarity = rarOrder[newIdx];
+  }
+
   return baseRarity;
 }
 
-function calcStats(views, contentLength, rarity) {
+function calcStats(views, contentLength, rarity, illustCount) {
   const mult = RO[rarity] + 1;
-  const atkBase = Math.log10(Math.max(views, 10)) * 200;
+  const ic = illustCount || 0;
+  const atkBase = Math.log10(Math.max(views, 10)) * 200 + Math.log10(Math.max(ic, 1)) * 50;
   const defBase = Math.log10(Math.max(contentLength, 100)) * 120;
   const atk = Math.floor(atkBase * mult * (0.8 + Math.random() * 0.4));
   const def = Math.floor(defBase * mult * (0.8 + Math.random() * 0.4));
@@ -127,11 +148,12 @@ function generateFallbackArticles(count) {
 // CARD CREATION
 // ============================================================
 function articleToCard(article, guaranteedMinRarity) {
-  let rarity = determineRarity(article.views, article.contentLength);
+  const ic = article.illustCount || 0;
+  let rarity = determineRarity(article.views, article.contentLength, ic);
   if (guaranteedMinRarity && RO[rarity] < RO[guaranteedMinRarity]) rarity = guaranteedMinRarity;
-  const stats = calcStats(article.views, article.contentLength, rarity);
+  const stats = calcStats(article.views, article.contentLength, rarity, ic);
   const flav = RO[rarity] >= 4 ? FL[Math.floor(Math.random() * FL.length)] : null;
-  return { id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5), name: article.name, desc: article.desc || `ピクシブ百科事典の記事「${article.name}」`, rar: rarity, rl: RC[RO[rarity]].l, atk: stats.atk, def: stats.def, flav, ts: Date.now(), views: article.views, contentLength: article.contentLength };
+  return { id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5), name: article.name, desc: article.desc || `ピクシブ百科事典の記事「${article.name}」`, rar: rarity, rl: RC[RO[rarity]].l, atk: stats.atk, def: stats.def, flav, ts: Date.now(), views: article.views, contentLength: article.contentLength, illustCount: ic };
 }
 
 function getImgURL(name) {
@@ -544,6 +566,7 @@ function showDamagePopup(targetSide, amount, type) {
 
 function battleAction(action) {
   if (!battleState || battleState.playerHP <= 0 || battleState.enemyHP <= 0) return;
+  if (action === 'skill' && battleState.skillCD > 0) return; // CD中は何もしない（ボタンdisable前にチェック）
   const bs = battleState, pc = bs.player, ec = bs.enemy;
   document.querySelectorAll('.bf-act-btn').forEach(b => b.disabled = true);
   addBattleLog(`── ターン ${bs.turn} ──`, 'log-turn');
@@ -558,7 +581,6 @@ function battleAction(action) {
     }
     case 'defend': { bs.defending = true; addBattleLog(`${pc.name} は防御の構えを取った！`, 'log-def'); break; }
     case 'skill': {
-      if (bs.skillCD > 0) return;
       const dmg = Math.floor((pc.atk + pc.def * 0.5) * (0.25 + Math.random() * 0.15));
       bs.enemyHP -= dmg; bs.skillCD = 3;
       addBattleLog(`${pc.name} のスキル発動！ ${dmg.toLocaleString()} の大ダメージ！`, 'log-skill');
