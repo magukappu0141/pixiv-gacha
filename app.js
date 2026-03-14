@@ -29,6 +29,20 @@ const FL = [
 
 let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false };
 try { const v = localStorage.getItem('pxg5'); if(v) S = {...S, ...JSON.parse(v)}; } catch(e) {}
+
+// 同名カードの重複を統合（最高レア度のものを残す）
+function dedupeCollection() {
+  const best = new Map();
+  for (const c of S.col) {
+    const existing = best.get(c.name);
+    if (!existing || RO[c.rar] > RO[existing.rar] || (RO[c.rar] === RO[existing.rar] && c.atk > existing.atk)) {
+      best.set(c.name, c);
+    }
+  }
+  S.col = [...best.values()].sort((a, b) => b.ts - a.ts);
+}
+dedupeCollection();
+
 function save() { try { localStorage.setItem('pxg5', JSON.stringify(S)); } catch(e) {} }
 
 let cur = [], ci = 0;
@@ -300,6 +314,7 @@ async function openPack() {
     while (cards.length < 5) cards.push(articleToCard(generateFallbackArticles(1)[0]));
 
     cards.forEach(c => { c.isNew = true; S.col.unshift(c); });
+    dedupeCollection();
     save(); cur = cards; ci = 0;
 
     const br = Math.max(...cards.map(c => RO[c.rar]));
@@ -482,8 +497,13 @@ function renderBattleSelect() {
   if (S.col.length === 0) { grid.innerHTML = '<div style="color:var(--dim);padding:20px">カードがありません</div>'; return; }
   const seen = new Set();
   const unique = S.col.filter(c => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
-  grid.innerHTML = unique.slice(0, 50).map(c => `<div class="b-sel-card card-${c.rar}" data-id="${c.id}" onclick="selectBattleCard('${c.id}',this)">
-    <div class="b-sel-name">${c.name}</div><div class="b-sel-info">${c.rar} ATK:${c.atk.toLocaleString()}</div></div>`).join('');
+  grid.innerHTML = unique.slice(0, 50).map(c => {
+    const ri = RO[c.rar];
+    return `<div class="b-sel-card card-${c.rar}" data-id="${c.id}" onclick="selectBattleCard('${c.id}',this)">
+    <div class="b-sel-rar" style="color:${RC[ri].cl}">${c.rar}</div>
+    <div class="b-sel-name">${c.name}</div>
+    <div class="b-sel-info">ATK:${c.atk.toLocaleString()}</div></div>`;
+  }).join('');
 }
 
 function selectBattleCard(id, el) {
@@ -646,8 +666,9 @@ function enemyTurn() {
   bs.turn++;
   if (bs.skillCD > 0) bs.skillCD--;
   if (bs.enemySkillCD > 0) bs.enemySkillCD--;
-  updateTurnDisplay(); updateSkillButton();
+  updateTurnDisplay();
   if (bs.turn > 30) { setTimeout(() => finishBattle('draw'), 600); return; }
+  // 全ボタンを有効化してからスキルだけCDチェック
   document.querySelectorAll('.bf-act-btn').forEach(b => b.disabled = false);
   updateSkillButton();
 }
@@ -665,19 +686,20 @@ function finishBattle(result) {
     resultText.textContent = '🎉 WIN!'; resultText.className = 'bf-result-text win';
     S.br.w++; spawnP(30);
     ec.isNew = true; ec.ts = Date.now(); S.col.unshift(ec);
-    detail += `<div style="font-size:1rem;color:var(--txt);margin:8px 0">「${pc.name}」が「${ec.name}」に勝ちました！</div>`;
-    detail += `<div class="b-gain">+ 「${ec.name}」(${ec.rar}) を獲得！</div>`;
+    dedupeCollection();
+    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${pc.name} が ${ec.name} に勝ちました！</div>`;
+    detail += `<div class="b-gain">+ ${ec.name} (${ec.rar}) を獲得！</div>`;
   } else if (result === 'lose') {
     resultText.textContent = '💀 LOSE...'; resultText.className = 'bf-result-text lose';
     S.br.l++;
     const idx = S.col.findIndex(c => c.id === pc.id);
     if (idx !== -1) S.col.splice(idx, 1);
-    detail += `<div style="font-size:1rem;color:var(--txt);margin:8px 0">「${ec.name}」が「${pc.name}」に勝ちました...</div>`;
-    detail += `<div class="b-lose-card">- 「${pc.name}」(${pc.rar}) を没収された...</div>`;
+    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${ec.name} が ${pc.name} に勝ちました...</div>`;
+    detail += `<div class="b-lose-card">- ${pc.name} (${pc.rar}) を没収された...</div>`;
   } else {
     resultText.textContent = '🤝 DRAW'; resultText.className = 'bf-result-text'; resultText.style.color = 'var(--dim)';
     S.br.d = (S.br.d || 0) + 1;
-    detail += `<div style="font-size:1rem;color:var(--dim);margin:8px 0">「${pc.name}」と「${ec.name}」は引き分けました</div>`;
+    detail += `<div style="font-size:.95rem;color:var(--dim);margin:8px 0">${pc.name} と ${ec.name} は引き分けました</div>`;
   }
   detail += `<div style="margin-top:8px;font-size:.82rem">戦績: ${S.br.w}勝 ${S.br.l}敗 ${S.br.d||0}分</div>`;
   resultDetail.innerHTML = detail;
