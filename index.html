@@ -32,6 +32,7 @@
       <div class="pk-cnt">本日のパック：<span class="num" id="pN">10</span> / 10</div>
       <div class="pk-tm" id="pT">次の回復まで: 1:00</div>
       <div class="pk-gp" id="pG">金パックまであと10回</div>
+      <div class="pk-pts">💎 <span id="ptsDisplay">0 pt</span></div>
       <div class="r18-toggle">
         <label class="r18-label">
           <span>R-18</span>
@@ -89,15 +90,27 @@
   <div class="z-empty" id="zE">まだカードがありません。<br>ガチャを引いてみよう！</div>
 </div>
 
-<!-- バトル画面 (HP制ターンバトル) -->
+<!-- バトル画面 (イラスト投稿数バトル) -->
 <div class="scr" id="screen-battle">
   <div class="ba">
     <!-- カード選択フェーズ -->
     <div id="bSelectPhase">
-      <div class="ba-desc">カードを選んでHP制バトル！<br>ターン制で攻撃・防御・スキルを選択。勝てば相手のカードを獲得！</div>
+      <div class="ba-desc">カードを選んでイラスト投稿数バトル！<br>pixivのイラスト投稿数が多い方が勝ち。強いカードは敵が増えるがポイントも増！</div>
       <div class="ba-record" id="baRecord"></div>
+      <div class="ba-pts" id="baPts">ポイント: 0 pt</div>
+      <div class="ba-actions-row">
+        <button class="btn-exchange" onclick="openExchange()">🔄 カード交換</button>
+      </div>
       <div id="bSelect" style="margin:16px 0">
-        <div style="font-size:.85rem;color:var(--dim);margin-bottom:10px">バトルに出すカードを選んでください：</div>
+        <div class="b-sort-row">
+          <span class="b-sort-label">並び替え:</span>
+          <div class="b-sort">
+            <button class="active" data-sort="rarity" onclick="sortBattle('rarity',this)">レア度</button>
+            <button data-sort="atk" onclick="sortBattle('atk',this)">ATK</button>
+            <button data-sort="name" onclick="sortBattle('name',this)">名前</button>
+            <button data-sort="newest" onclick="sortBattle('newest',this)">新着</button>
+          </div>
+        </div>
         <div class="b-sel-grid" id="bSelGrid"></div>
       </div>
       <button class="btn-bt" id="battleBtn" onclick="startBattle()" disabled>バトル開始！</button>
@@ -117,14 +130,15 @@
             <div class="bf-hp-bar">
               <div class="bf-hp-fill enemy-hp" id="bfEnemyHP" style="width:100%"></div>
             </div>
-            <div class="bf-hp-text" id="bfEnemyHPText">HP: 100/100</div>
+            <div class="bf-hp-text" id="bfEnemyHPText">イラスト: ---</div>
           </div>
         </div>
 
         <!-- VS -->
         <div class="bf-vs-divider">
           <span class="bf-vs-text">VS</span>
-          <div class="bf-turn-indicator" id="bfTurn">ターン 1</div>
+          <div class="bf-turn-indicator" id="bfTurn">第1戦</div>
+          <div class="bf-enemy-count" id="bfEnemyCount"></div>
         </div>
 
         <!-- 自分側 -->
@@ -138,33 +152,9 @@
             <div class="bf-hp-bar">
               <div class="bf-hp-fill player-hp" id="bfPlayerHP" style="width:100%"></div>
             </div>
-            <div class="bf-hp-text" id="bfPlayerHPText">HP: 100/100</div>
+            <div class="bf-hp-text" id="bfPlayerHPText">イラスト: ---</div>
           </div>
         </div>
-      </div>
-
-      <!-- アクション選択 -->
-      <div class="bf-actions" id="bfActions">
-        <button class="bf-act-btn act-atk" onclick="battleAction('attack')">
-          <span class="act-icon">⚔️</span>
-          <span class="act-label">攻撃</span>
-          <span class="act-desc">ATK依存ダメージ</span>
-        </button>
-        <button class="bf-act-btn act-def" onclick="battleAction('defend')">
-          <span class="act-icon">🛡️</span>
-          <span class="act-label">防御</span>
-          <span class="act-desc">ダメージ半減+反撃</span>
-        </button>
-        <button class="bf-act-btn act-skill" onclick="battleAction('skill')">
-          <span class="act-icon">✨</span>
-          <span class="act-label">スキル</span>
-          <span class="act-desc">大ダメージ(2T待機)</span>
-        </button>
-        <button class="bf-act-btn act-heal" onclick="battleAction('heal')">
-          <span class="act-icon">💚</span>
-          <span class="act-label">回復</span>
-          <span class="act-desc">DEF依存HP回復</span>
-        </button>
       </div>
 
       <!-- バトルログ -->
@@ -180,32 +170,58 @@
   </div>
 </div>
 
+<!-- カード交換モーダル -->
+<div class="do" id="exchangeO" onclick="if(event.target===this)closeExchange()">
+  <div class="ex-modal" onclick="event.stopPropagation()">
+    <button class="hx" onclick="closeExchange()">✕</button>
+    <h3>🔄 カード交換</h3>
+    <div class="ex-pts" id="exPts">所持ポイント: 0 pt</div>
+    <div class="ex-cost-table">
+      <div class="ex-cost-row"><span class="rc-c">C</span> 5pt</div>
+      <div class="ex-cost-row"><span class="rc-uc">UC</span> 15pt</div>
+      <div class="ex-cost-row"><span class="rc-r">R</span> 30pt</div>
+      <div class="ex-cost-row"><span class="rc-sr">SR</span> 60pt</div>
+      <div class="ex-cost-row"><span class="rc-ssr">SSR</span> 120pt</div>
+      <div class="ex-cost-row"><span class="rc-ur">UR</span> 250pt</div>
+      <div class="ex-cost-row"><span class="rc-lr">LR</span> 500pt</div>
+    </div>
+    <div class="ex-input-row">
+      <input type="text" id="exUrl" placeholder="百科事典URL or 記事名" class="ex-input">
+      <button class="ex-search-btn" onclick="previewExchange()">検索</button>
+    </div>
+    <div class="ex-status" id="exStatus"></div>
+    <div class="ex-preview" id="exPreview"></div>
+    <button class="btn-bt ex-confirm" id="exConfirmBtn" style="display:none">交換する</button>
+  </div>
+</div>
+
 <!-- ヘルプ -->
 <div class="ho" id="helpO" onclick="if(event.target===this)toggleHelp()">
   <div class="hc">
     <button class="hx" onclick="toggleHelp()">✕</button>
     <h2>ピクシブ百科事典ガチャについて</h2>
     <h3>概要</h3>
-    <p>ピクシブ百科事典の記事をカード風にランダムで表示します。記事の充実度・人気度が高いほど高レアリティのカードが手に入ります。</p>
+    <p>ピクシブ百科事典の記事をカード風にランダムで表示します。pixivのイラスト投稿数が多い記事ほど高レアリティのカードが手に入ります。</p>
     <p>1パック5枚入り。10回開封でSR以上確定の金パックを開封できます。パックは1分で1つ補充され、最大10個まで保持できます。</p>
     <p>カードをタップするとピクシブ百科事典の記事にジャンプできます。</p>
     <h3>レア度</h3>
+    <p>レア度はpixivのイラスト投稿数をベースに決定されます。投稿数が多い＝人気＝高レア度。</p>
     <table class="ht">
-      <tr><th>レア</th><th>意味</th><th>出現率</th></tr>
-      <tr><td class="rc-lr">LR</td><td>レジェンドレア</td><td>0.3%</td></tr>
-      <tr><td class="rc-ur">UR</td><td>ウルトラレア</td><td>1.2%</td></tr>
-      <tr><td class="rc-ssr">SSR</td><td>スーパースペシャルレア</td><td>3.5%</td></tr>
-      <tr><td class="rc-sr">SR</td><td>スーパーレア</td><td>7%</td></tr>
-      <tr><td class="rc-r">R</td><td>レア</td><td>13%</td></tr>
-      <tr><td class="rc-uc">UC</td><td>アンコモン</td><td>25%</td></tr>
-      <tr><td class="rc-c">C</td><td>コモン</td><td>50%</td></tr>
+      <tr><th>レア</th><th>意味</th><th>投稿数目安</th></tr>
+      <tr><td class="rc-lr">LR</td><td>レジェンドレア</td><td>200,000件〜</td></tr>
+      <tr><td class="rc-ur">UR</td><td>ウルトラレア</td><td>80,000件〜</td></tr>
+      <tr><td class="rc-ssr">SSR</td><td>スーパースペシャルレア</td><td>30,000件〜</td></tr>
+      <tr><td class="rc-sr">SR</td><td>スーパーレア</td><td>10,000件〜</td></tr>
+      <tr><td class="rc-r">R</td><td>レア</td><td>3,000件〜</td></tr>
+      <tr><td class="rc-uc">UC</td><td>アンコモン</td><td>500件〜</td></tr>
+      <tr><td class="rc-c">C</td><td>コモン</td><td>500件未満</td></tr>
     </table>
-    <h3>ATK / DEF</h3>
-    <p>ATK（人気度）: 閲覧数ベース × レアリティ倍率。DEF（詳細度）: 文章量ベース × レアリティ倍率。</p>
     <h3>バトルシステム</h3>
-    <p>HP制のターンバトル。毎ターン「攻撃」「防御」「スキル」「回復」から行動を選択します。</p>
-    <p>攻撃: ATK依存ダメージ。防御: ダメージ半減+反撃。スキル: 大ダメージ(使用後2T待機)。回復: DEF依存でHP回復。</p>
-    <p>勝利で相手のカードを獲得、敗北で自分のカードを没収されます。</p>
+    <p>カードを選んでイラスト投稿数バトル！pixivのイラスト投稿数が多い方が勝ちます。</p>
+    <p>強いカード（SR以上）で参戦すると敵が複数体出現しますが、その分獲得ポイントも増えます。</p>
+    <p>勝利: +10pt（×敵の数の倍率） / 敗北: -5pt</p>
+    <h3>ポイント & カード交換</h3>
+    <p>バトルで獲得したポイントを使って、好きな百科事典の記事をカードとして入手できます。交換コストはレア度に比例します。</p>
     <h3>フレーバーテキスト</h3><p>SSR以上のカードに自動生成のフレーバーテキストが付きます。</p>
     <h3>画像について</h3><p>カードに表示される画像はピクシブ百科事典の記事のメイン画像（OGP画像）を表示しています。</p>
   </div>

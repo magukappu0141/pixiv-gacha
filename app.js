@@ -1,18 +1,21 @@
 // ============================================================
-// ピクシブ百科事典ガチャ - app.js v2
+// ピクシブ百科事典ガチャ - app.js v3
 // ============================================================
 const PROXY_BASE = 'https://pixiv-gacha-proxy.vercel.app';
 
 const RC = [
-  { n:'C',   l:'コモン',             cl:'var(--c)',   w:50,  minViews:0,     minLen:0 },
-  { n:'UC',  l:'アンコモン',         cl:'var(--uc)',  w:25,  minViews:500,   minLen:1000 },
-  { n:'R',   l:'レア',               cl:'var(--r)',   w:13,  minViews:2000,  minLen:3000 },
-  { n:'SR',  l:'スーパーレア',       cl:'var(--sr)',  w:7,   minViews:8000,  minLen:8000 },
-  { n:'SSR', l:'SSレア',             cl:'var(--ssr)', w:3.5, minViews:20000, minLen:15000 },
-  { n:'UR',  l:'ウルトラレア',       cl:'var(--ur)',  w:1.2, minViews:50000, minLen:30000 },
-  { n:'LR',  l:'レジェンドレア',     cl:'var(--lr)',  w:0.3, minViews:100000,minLen:50000 },
+  { n:'C',   l:'コモン',             cl:'var(--c)',   w:50,  minIllust:0 },
+  { n:'UC',  l:'アンコモン',         cl:'var(--uc)',  w:25,  minIllust:500 },
+  { n:'R',   l:'レア',               cl:'var(--r)',   w:13,  minIllust:3000 },
+  { n:'SR',  l:'スーパーレア',       cl:'var(--sr)',  w:7,   minIllust:10000 },
+  { n:'SSR', l:'SSレア',             cl:'var(--ssr)', w:3.5, minIllust:30000 },
+  { n:'UR',  l:'ウルトラレア',       cl:'var(--ur)',  w:1.2, minIllust:80000 },
+  { n:'LR',  l:'レジェンドレア',     cl:'var(--lr)',  w:0.3, minIllust:200000 },
 ];
 const RO = { C:0, UC:1, R:2, SR:3, SSR:4, UR:5, LR:6 };
+
+// カード交換のポイントコスト（レア度別）
+const EXCHANGE_COST = { C:5, UC:15, R:30, SR:60, SSR:120, UR:250, LR:500 };
 
 const FL = [
   "pixivの片隅で静かに輝く、知る人ぞ知る記事。",
@@ -27,8 +30,8 @@ const FL = [
   "二次創作の可能性を無限に広げる、魔法の言葉。",
 ];
 
-let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, goldenBonus:false, goldenBonusAt:0 };
-try { const v = localStorage.getItem('pxg5'); if(v) S = {...S, ...JSON.parse(v)}; } catch(e) {}
+let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, goldenBonus:false, goldenBonusAt:0, pts:0 };
+try { const v = localStorage.getItem('pxg5'); if(v) { const parsed = JSON.parse(v); S = {...S, ...parsed}; if (typeof S.pts !== 'number') S.pts = 0; } } catch(e) {}
 
 // 同名カードの重複を統合（最高レア度のものを残す）
 function dedupeCollection() {
@@ -56,48 +59,53 @@ function initR18Toggle() {
   sw.addEventListener('change', () => { S.r18 = sw.checked; save(); });
 }
 
+// ============================================================
+// レア度判定（イラスト投稿数ベース重視）
+// ============================================================
 function determineRarity(views, contentLength, illustCount) {
-  const roll = Math.random() * 100;
-  let baseRarity;
-  if (roll < 0.3)       baseRarity = 'LR';
-  else if (roll < 1.5)  baseRarity = 'UR';
-  else if (roll < 5)    baseRarity = 'SSR';
-  else if (roll < 12)   baseRarity = 'SR';
-  else if (roll < 25)   baseRarity = 'R';
-  else if (roll < 50)   baseRarity = 'UC';
-  else                   baseRarity = 'C';
-
-  // 品質スコア = 閲覧数 + 記事文字数÷5 + イラスト投稿数×2
   const ic = illustCount || 0;
-  const qualityScore = views + contentLength / 5 + ic * 2;
 
-  // イラスト投稿数が多い場合、レア度を上げるボーナス
-  // 10000件以上→1段階UP、50000件以上→2段階UP
-  let bonus = 0;
-  if (ic >= 50000) bonus = 2;
-  else if (ic >= 10000) bonus = 1;
+  // イラスト投稿数ベースのレア度判定（メイン）
+  let illustRarity = 'C';
+  if (ic >= 200000) illustRarity = 'LR';
+  else if (ic >= 80000) illustRarity = 'UR';
+  else if (ic >= 30000) illustRarity = 'SSR';
+  else if (ic >= 10000) illustRarity = 'SR';
+  else if (ic >= 3000)  illustRarity = 'R';
+  else if (ic >= 500)   illustRarity = 'UC';
 
-  // 品質が足りないと降格
-  if (baseRarity === 'LR'  && qualityScore < 100000) baseRarity = 'UR';
-  if (baseRarity === 'UR'  && qualityScore < 50000)  baseRarity = 'SSR';
-  if (baseRarity === 'SSR' && qualityScore < 20000)  baseRarity = 'SR';
-  if (baseRarity === 'SR'  && qualityScore < 5000)   baseRarity = 'R';
+  // ランダム抽選（ガチャの運要素）
+  const roll = Math.random() * 100;
+  let rollRarity;
+  if (roll < 0.3)       rollRarity = 'LR';
+  else if (roll < 1.5)  rollRarity = 'UR';
+  else if (roll < 5)    rollRarity = 'SSR';
+  else if (roll < 12)   rollRarity = 'SR';
+  else if (roll < 25)   rollRarity = 'R';
+  else if (roll < 50)   rollRarity = 'UC';
+  else                   rollRarity = 'C';
 
-  // イラスト投稿数ボーナスで昇格（LRは超えない）
-  const rarOrder = ['C','UC','R','SR','SSR','UR','LR'];
-  if (bonus > 0) {
-    const idx = rarOrder.indexOf(baseRarity);
-    const newIdx = Math.min(idx + bonus, 6); // LR=6が上限
-    baseRarity = rarOrder[newIdx];
+  // イラスト投稿数ベース70% + ランダム30%
+  let finalRarity;
+  if (Math.random() < 0.7) {
+    finalRarity = RO[illustRarity] >= RO[rollRarity] ? illustRarity : rollRarity;
+  } else {
+    finalRarity = rollRarity;
   }
 
-  return baseRarity;
+  // 閲覧数・文字数で微調整（品質低→降格）
+  const qualityScore = views + contentLength / 5;
+  if (finalRarity === 'LR'  && qualityScore < 80000  && ic < 200000) finalRarity = 'UR';
+  if (finalRarity === 'UR'  && qualityScore < 40000  && ic < 80000)  finalRarity = 'SSR';
+  if (finalRarity === 'SSR' && qualityScore < 15000  && ic < 30000)  finalRarity = 'SR';
+
+  return finalRarity;
 }
 
 function calcStats(views, contentLength, rarity, illustCount) {
   const mult = RO[rarity] + 1;
   const ic = illustCount || 0;
-  const atkBase = Math.log10(Math.max(views, 10)) * 200 + Math.log10(Math.max(ic, 1)) * 50;
+  const atkBase = Math.log10(Math.max(views, 10)) * 150 + Math.log10(Math.max(ic, 1)) * 150;
   const defBase = Math.log10(Math.max(contentLength, 100)) * 120;
   const atk = Math.floor(atkBase * mult * (0.8 + Math.random() * 0.4));
   const def = Math.floor(defBase * mult * (0.8 + Math.random() * 0.4));
@@ -153,9 +161,13 @@ async function fetchFromDicDirectly(count, owned) {
 
 function generateFallbackArticles(count) {
   const owned = getOwnedNames();
-  const FALLBACK_NAMES = ["鬼滅の刃","呪術廻戦","進撃の巨人","SPY×FAMILY","チェンソーマン","葬送のフリーレン","ワンピース","ドラゴンボール","NARUTO","BLEACH","新世紀エヴァンゲリオン","名探偵コナン","ジョジョの奇妙な冒険","HUNTER×HUNTER","Fate/Grand Order","ポケットモンスター","マリオ","ゼルダの伝説","原神","マインクラフト","エルデンリング","初音ミク","ピカチュウ","五条悟","竈門炭治郎","ルフィ","博麗霊夢","東方Project","ホロライブ","にじさんじ","兎田ぺこら","千本桜","スラムダンク","ドラえもん","千と千尋の神隠し","もののけ姫","となりのトトロ","君の名は。","セーラームーン","プリキュア","ウマ娘プリティーダービー","刀剣乱舞","ブルーアーカイブ","魔法少女まどか☆マギカ","Fate/stay night","ぼっち・ざ・ろっく!","銀魂","涼宮ハルヒの憂鬱","ラブライブ!","薬屋のひとりごと","ダンジョン飯","リコリス・リコイル","UNDERTALE","NieR:Automata","メイドインアビス","織田信長","新選組","コミケ","ツンデレ","ヤンデレ","領域展開","悪魔の実","スタンド","写輪眼","ドラゴン","吸血鬼","妖怪","擬人化","異世界転生","フランドール・スカーレット","チルノ","霧雨魔理沙","十六夜咲夜","星街すいせい","葛葉","宝鐘マリン","雷電将軍","鍾離","胡桃","マキマ","フリーレン","アーニャ・フォージャー","リヴァイ","煉獄杏寿郎","セイバー","レム","2B","後藤ひとり","ギルガメッシュ","諦めたらそこで試合終了ですよ","だが断る","海馬瀬人","ボーカロイド","鏡音リン・レン","重音テト","ラピュタ","艦これ","モンスターハンター","バイオハザード","ペルソナ5","星のカービィ","大乱闘スマッシュブラザーズ","ファイナルファンタジー","ゴールデンカムイ","ブルーロック","キングダム","ワンパンマン","ガールズ&パンツァー","このすば","ヴァイオレット・エヴァーガーデン","転生したらスライムだった件"];
+  const FALLBACK_NAMES = ["鬼滅の刃","呪術廻戦","進撃の巨人","SPY×FAMILY","チェンソーマン","葬送のフリーレン","ワンピース","ドラゴンボール","NARUTO","BLEACH","新世紀エヴァンゲリオン","名探偵コナン","ジョジョの奇妙な冒険","HUNTER×HUNTER","Fate/Grand Order","ポケットモンスター","マリオ","ゼルダの伝説","原神","マインクラフト","エルデンリング","初音ミク","ピカチュウ","五条悟","竈門炭治郎","ルフィ","博麗霊夢","東方Project","ホロライブ","にじさんじ","兎田ぺこら","千本桜","スラムダンク","ドラえもん","千と千尋の神隠し","もののけ姫","となりのトトロ","君の名は。","セーラームーン","プリキュア","ウマ娘プリティーダービー","刀剣乱舞","ブルーアーカイブ","魔法少女まどか☆マギカ","Fate/stay night","ぼっち・ざ・ろっく!","銀魂","涼宮ハルヒの憂鬱","ラブライブ!","薬屋のひとりごと","ダンジョン飯","リコリス・リコイル","UNDERTALE","NieR:Automata","メイドインアビス","織田信長","新選組","コミケ","ツンデレ","ヤンデレ","領域展開","悪魔の実","スタンド","写輪眼","ドラゴン","吸血鬼","妖怪","擬人化","異世界転生","フランドール・スカーレット","チルノ","霧雨魔理沙","十六夜咲夜","星街すいせい","葛葉","宝鐘マリン","雷電将軍","鍾離","胡桃","マキマ","フリーレン","アーニャ・フォージャー","リヴァイ","煉獄杏寿郎","セイバー","レム","2B","後藤ひとり","ギルガメッシュ","諦めたらそこで試合終了ですよ","だが断る","海馬瀬人","ボーカロイド","鏡音リン・レン","重音テト","ラピュタ","艦これ","モンスターハンター","バイオハザード","ペルソナ5","星のカービィ","大乱闘スマッシュブラザーズ","ファイナルファンタジー","ゴールデンカムイ","ブルーロック","キングダム","ワンパンマン","ガールズ&パンツァー","このすば","ヴァイオレット・エヴァーガーデン","転生したらスライムだった件","推しの子","怪獣8号","ソードアート・オンライン"];
+  const FALLBACK_IC = {"東方Project":400000,"ドラゴンボール":120000,"ワンピース":150000,"NARUTO":180000,"ポケットモンスター":300000,"初音ミク":500000,"セーラームーン":80000,"ドラえもん":60000,"鬼滅の刃":200000,"呪術廻戦":150000,"進撃の巨人":100000,"Fate/Grand Order":250000,"原神":300000,"ウマ娘プリティーダービー":180000,"ホロライブ":120000,"ブルーアーカイブ":200000,"SPY×FAMILY":60000,"チェンソーマン":80000,"ジョジョの奇妙な冒険":100000,"HUNTER×HUNTER":40000,"魔法少女まどか☆マギカ":100000,"艦これ":300000,"刀剣乱舞":200000,"推しの子":50000,"五条悟":80000,"博麗霊夢":150000};
   const available = FALLBACK_NAMES.filter(n => !owned.has(n)).sort(() => Math.random() - 0.5);
-  return available.slice(0, count).map(name => ({ name, desc: '', views: Math.floor(Math.random() * 200000) + 100, contentLength: Math.floor(Math.random() * 80000) + 500 }));
+  return available.slice(0, count).map(name => {
+    const ic = FALLBACK_IC[name] || Math.floor(Math.random() * 30000) + 100;
+    return { name, desc: '', views: Math.floor(Math.random() * 200000) + 100, contentLength: Math.floor(Math.random() * 80000) + 500, illustCount: ic };
+  });
 }
 
 // ============================================================
@@ -179,7 +191,6 @@ function cardHTML(c, w, clickable) {
   const link = `https://dic.pixiv.net/a/${encodeURIComponent(c.name)}`;
   const onclick = clickable !== false ? `onclick="window.open('${link.replace(/'/g,"\\'")}','_blank')"` : '';
   const cursor = clickable !== false ? 'cursor:pointer;' : '';
-  // 説明文を80文字以内に切り詰め（フレーバーテキストがある場合はさらに短く）
   let desc = c.desc || '';
   const maxLen = c.flav ? 55 : 80;
   if (desc.length > maxLen) desc = desc.substring(0, maxLen) + '…';
@@ -231,14 +242,12 @@ function showRareEffect(rarity) {
     const cx = canvas.width / 2, cy = canvas.height / 2;
     const progress = frame / maxFrames;
 
-    // Background glow
     const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, canvas.width * 0.6);
     grd.addColorStop(0, `hsla(${hue1}, 80%, 50%, ${0.15 * Math.sin(frame * 0.05)})`);
     grd.addColorStop(0.5, `hsla(${hue2}, 60%, 30%, ${0.08 * Math.sin(frame * 0.03)})`);
     grd.addColorStop(1, 'transparent');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Light rays
     rays.forEach(r => {
       r.angle += r.speed;
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(r.angle);
@@ -253,7 +262,6 @@ function showRareEffect(rarity) {
       ctx.fillStyle = rayGrd; ctx.fill(); ctx.restore();
     });
 
-    // Particles
     particles.forEach(p => {
       p.life++; p.x += p.vx; p.y += p.vy;
       if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
@@ -265,7 +273,6 @@ function showRareEffect(rarity) {
       ctx.fillStyle = `hsla(${p.hue}, 90%, 75%, ${p.alpha * 0.15 * twinkle})`; ctx.fill();
     });
 
-    // Expanding ring
     if (frame > 20 && frame < 60) {
       const rp = (frame - 20) / 40;
       ctx.beginPath(); ctx.arc(cx, cy, rp * canvas.width * 0.5, 0, Math.PI * 2);
@@ -326,7 +333,7 @@ async function openPack() {
     setTimeout(() => {
       document.getElementById('packO').classList.remove('active');
 
-      if (br >= 4) { // SSR以上 → 豪華演出
+      if (br >= 4) {
         showRareEffect(bestRarity);
         setTimeout(() => {
           showFl(br >= 6 ? 'flr' : br >= 5 ? 'fur' : 'fssr');
@@ -373,7 +380,6 @@ function renderViewer() {
     const frontCard = document.querySelector('#cvM .card');
     const cardH = frontCard ? frontCard.offsetHeight : 460;
 
-    // 右側: 未開封カード
     const backs = document.getElementById('cvBacks'); backs.innerHTML = '';
     cur.slice(ci + 1).slice(0, 4).forEach((c, i) => {
       const el = document.createElement('div');
@@ -382,7 +388,6 @@ function renderViewer() {
       backs.appendChild(el);
     });
 
-    // 左側: 開封済みカード
     const done = document.getElementById('cvDone'); if(done){done.innerHTML = '';
     cur.slice(0, ci).slice(-4).reverse().forEach((c, i) => {
       const el = document.createElement('div');
@@ -436,6 +441,9 @@ function updPk() {
   document.getElementById('pG').textContent = hasBonus ? '🌟 金パック準備完了！' : ng === 10 ? '金パックまであと10回' : `金パックまであと${ng}回`;
   const pkImg = document.querySelector('.pk-img');
   if (pkImg) pkImg.src = (ng === 1 || hasBonus) ? 'pix_gold.png' : 'pix.png';
+  // ポイント表示更新
+  const ptsEl = document.getElementById('ptsDisplay');
+  if (ptsEl) ptsEl.textContent = `${S.pts} pt`;
 }
 
 setInterval(() => {
@@ -453,7 +461,7 @@ let zS = 'newest';
 function sZ(t, b) { zS = t; document.querySelectorAll('.z-sort button').forEach(x => x.classList.remove('active')); if (b) b.classList.add('active'); renZ(); }
 
 function renZ() {
-  dedupeCollection(); // 表示前に必ず重複排除
+  dedupeCollection();
   const g = document.getElementById('zGrid'), e = document.getElementById('zE');
   document.getElementById('zCnt').textContent = `${S.col.length}枚`;
   if (!S.col.length) { g.innerHTML = ''; e.style.display = 'block'; return; }
@@ -484,10 +492,11 @@ function sDet(id) {
 function cDet() { document.getElementById('detO').classList.remove('active'); }
 
 // ============================================================
-// HP制ターンバトルシステム
+// イラスト投稿数ベース バトルシステム
 // ============================================================
 let selectedBattleCardId = null;
 let battleState = null;
+let battleSortMode = 'rarity';
 
 function renderBattleSelect() {
   const grid = document.getElementById('bSelGrid');
@@ -497,9 +506,25 @@ function renderBattleSelect() {
   if (btn) btn.disabled = true;
   if (rec) rec.textContent = `戦績: ${S.br.w}勝 ${S.br.l}敗 ${S.br.d||0}分`;
 
+  // ポイント表示
+  const ptsEl = document.getElementById('baPts');
+  if (ptsEl) ptsEl.textContent = `ポイント: ${S.pts} pt`;
+
   if (S.col.length === 0) { grid.innerHTML = '<div style="color:var(--dim);padding:20px">カードがありません</div>'; return; }
   const seen = new Set();
-  const unique = S.col.filter(c => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
+  let unique = S.col.filter(c => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
+
+  // ソート
+  if (battleSortMode === 'rarity') unique.sort((a, b) => RO[b.rar] - RO[a.rar] || b.atk - a.atk);
+  else if (battleSortMode === 'atk') unique.sort((a, b) => b.atk - a.atk);
+  else if (battleSortMode === 'name') unique.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  else if (battleSortMode === 'newest') unique.sort((a, b) => b.ts - a.ts);
+
+  // ソートボタンのアクティブ状態更新
+  document.querySelectorAll('.b-sort button').forEach(b => {
+    b.classList.toggle('active', b.dataset.sort === battleSortMode);
+  });
+
   grid.innerHTML = unique.slice(0, 50).map(c => {
     const ri = RO[c.rar];
     return `<div class="b-sel-card card-${c.rar}" data-id="${c.id}" onclick="selectBattleCard('${c.id}',this)">
@@ -509,6 +534,11 @@ function renderBattleSelect() {
   }).join('');
 }
 
+function sortBattle(mode, el) {
+  battleSortMode = mode;
+  renderBattleSelect();
+}
+
 function selectBattleCard(id, el) {
   document.querySelectorAll('.b-sel-card').forEach(c => c.classList.remove('selected'));
   el.classList.add('selected');
@@ -516,9 +546,31 @@ function selectBattleCard(id, el) {
   document.getElementById('battleBtn').disabled = false;
 }
 
-function calcHP(card) {
-  const rarMult = { C: 1, UC: 1.2, R: 1.5, SR: 2, SSR: 2.5, UR: 3, LR: 4 };
-  return Math.floor((card.atk + card.def) * (rarMult[card.rar] || 1) * 0.5);
+// イラスト投稿数をプロキシ経由で取得
+async function fetchIllustCount(tagName) {
+  try {
+    const resp = await fetch(`${PROXY_BASE}/illustcount?tag=${encodeURIComponent(tagName)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      return data.count || 0;
+    }
+  } catch(e) { console.warn('illustcount fetch failed:', e); }
+  return 0;
+}
+
+// バトル敵の数を自分のカードの強さに応じて決定
+function calcEnemyCount(playerCard) {
+  const ri = RO[playerCard.rar];
+  if (ri >= 5) return 3; // UR,LR → 3体
+  if (ri >= 3) return 2; // SR,SSR → 2体
+  return 1; // R以下 → 1体
+}
+
+// ポイントのベース倍率（敵が多いほどポイント増）
+function calcPointMultiplier(enemyCount) {
+  if (enemyCount >= 3) return 3;
+  if (enemyCount >= 2) return 2;
+  return 1;
 }
 
 async function startBattle() {
@@ -529,74 +581,297 @@ async function startBattle() {
   const btn = document.getElementById('battleBtn');
   if (btn) { btn.disabled = true; btn.textContent = '対戦相手を探しています...'; }
 
-  let ec;
+  const enemyCount = calcEnemyCount(pc);
+
+  // 敵カードを取得
+  const enemies = [];
   try {
-    // プロキシから持っていないカードを取得
     const owned = getOwnedNames();
     const r18val = S.r18only ? 2 : S.r18 ? 1 : 0;
-    const resp = await fetch(`${PROXY_BASE}/random?count=3&r18=${r18val}`);
+    const resp = await fetch(`${PROXY_BASE}/random?count=${enemyCount + 3}&r18=${r18val}`);
     if (resp.ok) {
       const data = await resp.json();
       const candidates = (data.articles || []).filter(a => !owned.has(a.name));
-      if (candidates.length > 0) {
-        ec = articleToCard(candidates[Math.floor(Math.random() * candidates.length)]);
+      for (let i = 0; i < Math.min(enemyCount, candidates.length); i++) {
+        enemies.push(articleToCard(candidates[i]));
       }
     }
   } catch(e) { console.warn('Enemy fetch failed:', e); }
 
-  // フォールバック: プロキシ失敗時はローカルリストから
-  if (!ec) {
-    const owned = getOwnedNames();
-    const fallbacks = generateFallbackArticles(10).filter(a => !owned.has(a.name));
-    if (fallbacks.length > 0) {
-      ec = articleToCard(fallbacks[Math.floor(Math.random() * fallbacks.length)]);
-    } else {
-      // 本当に全部持っている場合は適当に生成
-      ec = articleToCard(generateFallbackArticles(1)[0]);
+  while (enemies.length < enemyCount) {
+    const fallbacks = generateFallbackArticles(5);
+    for (const fb of fallbacks) {
+      if (enemies.length >= enemyCount) break;
+      enemies.push(articleToCard(fb));
     }
   }
 
-  const playerMaxHP = calcHP(pc), enemyMaxHP = calcHP(ec);
-
-  battleState = { player: pc, enemy: ec, turn: 1, playerHP: playerMaxHP, enemyHP: enemyMaxHP, playerMaxHP, enemyMaxHP, skillCD: 0, enemySkillCD: 0, defending: false, log: [] };
-
+  // バトルフィールド表示
   document.getElementById('bSelectPhase').style.display = 'none';
   document.getElementById('bBattlePhase').style.display = 'block';
   document.getElementById('bfResult').style.display = 'none';
-  document.getElementById('bfActions').style.display = '';
   document.getElementById('bfLog').innerHTML = '';
 
-  document.getElementById('bfPlayerCard').innerHTML = `<img src="${getImgURL(pc.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${pc.name.substring(0,4)}</div>`;
-  document.getElementById('bfEnemyCard').innerHTML = `<img src="${getImgURL(ec.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${ec.name.substring(0,4)}</div>`;
-  document.getElementById('bfPlayerName').textContent = `${pc.name} (${pc.rar})`;
-  document.getElementById('bfEnemyName').textContent = `${ec.name} (${ec.rar})`;
-
-  updateBattleHP(); updateTurnDisplay(); updateSkillButton();
-  addBattleLog(`⚔️ バトル開始！ ${pc.name} VS ${ec.name}`, 'log-turn');
   if (btn) { btn.disabled = false; btn.textContent = 'バトル開始！'; }
+
+  // プレイヤーカード表示
+  document.getElementById('bfPlayerCard').innerHTML = `<img src="${getImgURL(pc.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${pc.name.substring(0,4)}</div>`;
+  document.getElementById('bfPlayerName').textContent = `${pc.name} (${pc.rar})`;
+
+  const currentEnemy = enemies[0];
+  document.getElementById('bfEnemyCard').innerHTML = `<img src="${getImgURL(currentEnemy.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${currentEnemy.name.substring(0,4)}</div>`;
+  document.getElementById('bfEnemyName').textContent = `${currentEnemy.name} (${currentEnemy.rar})`;
+
+  const enemyCountLabel = document.getElementById('bfEnemyCount');
+  if (enemyCountLabel) enemyCountLabel.textContent = enemies.length > 1 ? `全 ${enemies.length} 戦` : '';
+
+  document.getElementById('bfPlayerHP').style.width = '50%';
+  document.getElementById('bfEnemyHP').style.width = '50%';
+  document.getElementById('bfPlayerHPText').textContent = '取得中...';
+  document.getElementById('bfEnemyHPText').textContent = '取得中...';
+
+  const bfTurn = document.getElementById('bfTurn');
+  if (bfTurn) bfTurn.textContent = `第1戦 / ${enemies.length}戦`;
+
+  addBattleLog(`⚔️ イラスト投稿数バトル！`, 'log-turn');
+  addBattleLog(`${pc.name} VS ${enemyCount > 1 ? `${enemyCount}体の敵` : currentEnemy.name}`, 'log-turn');
+  if (enemyCount > 1) addBattleLog(`💪 強いカードなので敵が${enemyCount}体！ ポイント${calcPointMultiplier(enemyCount)}倍！`, 'log-skill');
+  addBattleLog(`📊 イラスト投稿数を取得中...`, '');
+
+  // 自分のイラスト投稿数取得
+  const playerIC = await fetchIllustCount(pc.name);
+  addBattleLog(`📊 ${pc.name}: ${playerIC.toLocaleString()} 件`, 'log-skill');
+
+  battleState = {
+    player: pc,
+    enemies: enemies,
+    currentEnemyIdx: 0,
+    playerIC: playerIC,
+    enemyICs: [],
+    wins: 0,
+    losses: 0,
+    pointMultiplier: calcPointMultiplier(enemyCount),
+  };
+
+  await processBattleRound();
 }
 
-function updateBattleHP() {
+async function processBattleRound() {
   const bs = battleState;
-  const pPct = Math.max(0, bs.playerHP / bs.playerMaxHP * 100);
-  const ePct = Math.max(0, bs.enemyHP / bs.enemyMaxHP * 100);
-  const pBar = document.getElementById('bfPlayerHP'), eBar = document.getElementById('bfEnemyHP');
-  pBar.style.width = pPct + '%'; eBar.style.width = ePct + '%';
-  pPct < 25 ? pBar.classList.add('low') : pBar.classList.remove('low');
-  ePct < 25 ? eBar.classList.add('low') : eBar.classList.remove('low');
-  document.getElementById('bfPlayerHPText').textContent = `HP: ${Math.max(0,bs.playerHP).toLocaleString()} / ${bs.playerMaxHP.toLocaleString()}`;
-  document.getElementById('bfEnemyHPText').textContent = `HP: ${Math.max(0,bs.enemyHP).toLocaleString()} / ${bs.enemyMaxHP.toLocaleString()}`;
+  if (bs.currentEnemyIdx >= bs.enemies.length) {
+    finishBattle();
+    return;
+  }
+
+  const enemy = bs.enemies[bs.currentEnemyIdx];
+
+  // 敵カード表示を更新
+  document.getElementById('bfEnemyCard').innerHTML = `<img src="${getImgURL(enemy.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${enemy.name.substring(0,4)}</div>`;
+  document.getElementById('bfEnemyName').textContent = `${enemy.name} (${enemy.rar})`;
+
+  const enemyCountLabel = document.getElementById('bfEnemyCount');
+  const remaining = bs.enemies.length - bs.currentEnemyIdx;
+  if (enemyCountLabel) enemyCountLabel.textContent = remaining > 0 ? `残り ${remaining} 戦` : '';
+
+  const bfTurn = document.getElementById('bfTurn');
+  if (bfTurn) bfTurn.textContent = `第${bs.currentEnemyIdx + 1}戦 / ${bs.enemies.length}戦`;
+
+  addBattleLog(`── 第${bs.currentEnemyIdx + 1}戦 ──`, 'log-turn');
+  addBattleLog(`VS ${enemy.name}`, 'log-turn');
+
+  // 敵のイラスト投稿数取得
+  const enemyIC = await fetchIllustCount(enemy.name);
+  bs.enemyICs.push(enemyIC);
+  addBattleLog(`📊 ${enemy.name}: ${enemyIC.toLocaleString()} 件`, 'log-atk');
+
+  // HPバー表示（投稿数ベース）
+  const maxIC = Math.max(bs.playerIC, enemyIC, 1);
+  const pPct = Math.max(5, (bs.playerIC / maxIC) * 100);
+  const ePct = Math.max(5, (enemyIC / maxIC) * 100);
+
+  document.getElementById('bfPlayerHP').style.width = pPct + '%';
+  document.getElementById('bfEnemyHP').style.width = ePct + '%';
+  document.getElementById('bfPlayerHPText').textContent = `イラスト: ${bs.playerIC.toLocaleString()} 件`;
+  document.getElementById('bfEnemyHPText').textContent = `イラスト: ${enemyIC.toLocaleString()} 件`;
+
+  // 勝敗判定
+  await new Promise(r => setTimeout(r, 1500));
+
+  if (bs.playerIC > enemyIC) {
+    bs.wins++;
+    addBattleLog(`🎉 ${bs.player.name} の勝利！（${bs.playerIC.toLocaleString()} > ${enemyIC.toLocaleString()}）`, 'log-heal');
+    showDamagePopup('enemy', 'WIN', 'skill-dmg');
+    const targetEl = document.querySelector('.bf-enemy');
+    if (targetEl) { targetEl.classList.add('shake'); setTimeout(() => targetEl.classList.remove('shake'), 400); }
+  } else if (bs.playerIC < enemyIC) {
+    bs.losses++;
+    addBattleLog(`💀 ${enemy.name} の勝利...（${enemyIC.toLocaleString()} > ${bs.playerIC.toLocaleString()}）`, 'log-atk');
+    showDamagePopup('player', 'LOSE', 'atk-dmg');
+    const targetEl = document.querySelector('.bf-player');
+    if (targetEl) { targetEl.classList.add('shake'); setTimeout(() => targetEl.classList.remove('shake'), 400); }
+  } else {
+    addBattleLog(`🤝 引き分け！（${bs.playerIC.toLocaleString()} = ${enemyIC.toLocaleString()}）`, '');
+  }
+
+  bs.currentEnemyIdx++;
+  await new Promise(r => setTimeout(r, 1200));
+
+  if (bs.currentEnemyIdx < bs.enemies.length) {
+    await processBattleRound();
+  } else {
+    finishBattle();
+  }
 }
 
-function updateTurnDisplay() { document.getElementById('bfTurn').textContent = `ターン ${battleState.turn}`; }
+function finishBattle() {
+  const bs = battleState;
+  const resultDiv = document.getElementById('bfResult');
+  const resultText = document.getElementById('bfResultText');
+  const resultDetail = document.getElementById('bfResultDetail');
+  resultDiv.style.display = 'block';
 
-function updateSkillButton() {
-  const skillBtn = document.querySelector('.act-skill');
-  if (!skillBtn) return;
-  if (battleState.skillCD > 0) { skillBtn.disabled = true; skillBtn.classList.add('cooldown'); skillBtn.setAttribute('data-cd', `${battleState.skillCD}T`); }
-  else { skillBtn.disabled = false; skillBtn.classList.remove('cooldown'); skillBtn.removeAttribute('data-cd'); }
+  const won = bs.wins > bs.losses;
+  const draw = bs.wins === bs.losses;
+
+  let detail = '';
+  let pointsChange = 0;
+
+  if (won) {
+    pointsChange = 10 * bs.pointMultiplier;
+    resultText.textContent = '🎉 WIN!'; resultText.className = 'bf-result-text win';
+    S.br.w++; spawnP(30);
+    S.pts += pointsChange;
+    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で勝利！</div>`;
+    detail += `<div class="b-gain">+ ${pointsChange} ポイント獲得！</div>`;
+  } else if (draw) {
+    resultText.textContent = '🤝 DRAW'; resultText.className = 'bf-result-text'; resultText.style.color = 'var(--dim)';
+    S.br.d = (S.br.d || 0) + 1;
+    detail += `<div style="font-size:.95rem;color:var(--dim);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で引き分け</div>`;
+  } else {
+    pointsChange = -5;
+    resultText.textContent = '💀 LOSE...'; resultText.className = 'bf-result-text lose';
+    S.br.l++;
+    S.pts = Math.max(0, S.pts + pointsChange);
+    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で敗北...</div>`;
+    detail += `<div class="b-lose-card">${pointsChange} ポイント...</div>`;
+  }
+  detail += `<div style="margin-top:8px;font-size:.82rem">所持ポイント: ${S.pts} pt</div>`;
+  detail += `<div style="margin-top:4px;font-size:.82rem">戦績: ${S.br.w}勝 ${S.br.l}敗 ${S.br.d||0}分</div>`;
+  resultDetail.innerHTML = detail;
+  save();
+  updPk();
 }
 
+function endBattle() {
+  document.getElementById('bBattlePhase').style.display = 'none';
+  document.getElementById('bSelectPhase').style.display = 'block';
+  battleState = null; renderBattleSelect();
+}
+
+// ============================================================
+// カード交換（ポイントで百科事典URLからカード生成）
+// ============================================================
+async function openExchange() {
+  document.getElementById('exchangeO').classList.add('active');
+  document.getElementById('exPts').textContent = `所持ポイント: ${S.pts} pt`;
+  document.getElementById('exUrl').value = '';
+  document.getElementById('exPreview').innerHTML = '';
+  document.getElementById('exStatus').textContent = '';
+  document.getElementById('exConfirmBtn').style.display = 'none';
+}
+
+function closeExchange() {
+  document.getElementById('exchangeO').classList.remove('active');
+}
+
+let exchangePreviewCard = null;
+
+async function previewExchange() {
+  const urlInput = document.getElementById('exUrl').value.trim();
+  const status = document.getElementById('exStatus');
+  const preview = document.getElementById('exPreview');
+  const confirmBtn = document.getElementById('exConfirmBtn');
+
+  let tagName = '';
+  if (urlInput.includes('dic.pixiv.net/a/')) {
+    const m = urlInput.match(/dic\.pixiv\.net\/a\/([^?#]+)/);
+    if (m) tagName = decodeURIComponent(m[1]).replace(/\+/g, ' ');
+  } else {
+    tagName = urlInput;
+  }
+
+  if (!tagName) {
+    status.textContent = '❌ 百科事典のURLまたは記事名を入力してください';
+    status.style.color = 'var(--red)';
+    return;
+  }
+
+  if (S.col.some(c => c.name === tagName)) {
+    status.textContent = '⚠️ このカードは既に所持しています';
+    status.style.color = 'var(--orange)';
+    return;
+  }
+
+  status.textContent = '🔍 記事を取得中...';
+  status.style.color = 'var(--dim)';
+
+  try {
+    const resp = await fetch(`${PROXY_BASE}/article?name=${encodeURIComponent(tagName)}`);
+    if (!resp.ok) throw new Error('Fetch failed');
+    const article = await resp.json();
+    if (!article.name) throw new Error('Article not found');
+
+    const ic = await fetchIllustCount(tagName);
+    article.illustCount = ic;
+
+    const card = articleToCard(article);
+    exchangePreviewCard = card;
+
+    const cost = EXCHANGE_COST[card.rar] || 5;
+    const canAfford = S.pts >= cost;
+
+    preview.innerHTML = `<div style="transform:scale(0.85);transform-origin:top center">${cardHTML(card, 280, false)}</div>`;
+    status.innerHTML = `交換コスト: <span style="color:${canAfford ? 'var(--green)' : 'var(--red)'}; font-weight:900">${cost} pt</span>（所持: ${S.pts} pt）${ic > 0 ? `<br>イラスト投稿数: ${ic.toLocaleString()} 件` : ''}`;
+    status.style.color = 'var(--dim)';
+
+    confirmBtn.style.display = canAfford ? '' : 'none';
+    confirmBtn.textContent = `${cost} pt で交換する`;
+    confirmBtn.onclick = () => confirmExchange(cost);
+
+    if (!canAfford) {
+      status.innerHTML += '<br><span style="color:var(--red)">ポイントが足りません</span>';
+    }
+  } catch(e) {
+    status.textContent = '❌ 記事の取得に失敗しました';
+    status.style.color = 'var(--red)';
+    preview.innerHTML = '';
+    confirmBtn.style.display = 'none';
+  }
+}
+
+function confirmExchange(cost) {
+  if (!exchangePreviewCard || S.pts < cost) return;
+
+  S.pts -= cost;
+  exchangePreviewCard.ts = Date.now();
+  exchangePreviewCard.isNew = true;
+  S.col.unshift(exchangePreviewCard);
+  dedupeCollection();
+  save();
+  updPk();
+
+  const status = document.getElementById('exStatus');
+  status.innerHTML = `✅ <span style="color:var(--green);font-weight:700">${exchangePreviewCard.name}</span> を獲得しました！（残り: ${S.pts} pt）`;
+  document.getElementById('exConfirmBtn').style.display = 'none';
+  document.getElementById('exPts').textContent = `所持ポイント: ${S.pts} pt`;
+  exchangePreviewCard = null;
+
+  spawnP(20);
+}
+
+// ============================================================
+// BATTLE UI helpers
+// ============================================================
 function addBattleLog(text, cls) {
   const log = document.getElementById('bfLog');
   const div = document.createElement('div'); div.className = cls || ''; div.textContent = text;
@@ -609,136 +884,11 @@ function showDamagePopup(targetSide, amount, type) {
   const rect = targetEl.getBoundingClientRect();
   const popup = document.createElement('div');
   popup.className = `dmg-popup ${type}`;
-  popup.textContent = type === 'heal-dmg' ? `+${amount}` : `-${amount}`;
+  popup.textContent = typeof amount === 'number' ? (type === 'heal-dmg' ? `+${amount}` : `-${amount}`) : amount;
   popup.style.left = (rect.left + rect.width / 2 - 30) + 'px';
   popup.style.top = (rect.top + rect.height / 2) + 'px';
   document.body.appendChild(popup);
   setTimeout(() => popup.remove(), 1200);
-  if (type !== 'heal-dmg') { targetEl.classList.add('shake'); setTimeout(() => targetEl.classList.remove('shake'), 400); }
-}
-
-function battleAction(action) {
-  if (!battleState || battleState.playerHP <= 0 || battleState.enemyHP <= 0) return;
-  if (action === 'skill' && battleState.skillCD > 0) return; // CD中は何もしない（ボタンdisable前にチェック）
-  const bs = battleState, pc = bs.player, ec = bs.enemy;
-  document.querySelectorAll('.bf-act-btn').forEach(b => b.disabled = true);
-  addBattleLog(`── ターン ${bs.turn} ──`, 'log-turn');
-  bs.defending = false;
-
-  switch (action) {
-    case 'attack': {
-      const dmg = Math.floor(pc.atk * (0.15 + Math.random() * 0.1));
-      bs.enemyHP -= dmg;
-      addBattleLog(`${pc.name} の攻撃！ ${dmg.toLocaleString()} ダメージ！`, 'log-atk');
-      showDamagePopup('enemy', dmg, 'atk-dmg'); break;
-    }
-    case 'defend': { bs.defending = true; addBattleLog(`${pc.name} は防御の構えを取った！`, 'log-def'); break; }
-    case 'skill': {
-      const dmg = Math.floor((pc.atk + pc.def * 0.5) * (0.25 + Math.random() * 0.15));
-      bs.enemyHP -= dmg; bs.skillCD = 3;
-      addBattleLog(`${pc.name} のスキル発動！ ${dmg.toLocaleString()} の大ダメージ！`, 'log-skill');
-      showDamagePopup('enemy', dmg, 'skill-dmg'); break;
-    }
-    case 'heal': {
-      const heal = Math.floor(pc.def * (0.12 + Math.random() * 0.08));
-      bs.playerHP = Math.min(bs.playerMaxHP, bs.playerHP + heal);
-      addBattleLog(`${pc.name} はHPを ${heal.toLocaleString()} 回復した！`, 'log-heal');
-      showDamagePopup('player', heal, 'heal-dmg'); break;
-    }
-  }
-  updateBattleHP();
-  if (bs.enemyHP <= 0) { setTimeout(() => finishBattle('win'), 800); return; }
-  setTimeout(() => enemyTurn(), 800);
-}
-
-function enemyTurn() {
-  const bs = battleState, pc = bs.player, ec = bs.enemy;
-  const hpPct = bs.enemyHP / bs.enemyMaxHP;
-  let action;
-  if (hpPct < 0.25 && Math.random() < 0.5) action = 'heal';
-  else if (bs.enemySkillCD <= 0 && Math.random() < 0.25) action = 'skill';
-  else if (Math.random() < 0.15) action = 'defend';
-  else action = 'attack';
-
-  switch (action) {
-    case 'attack': {
-      const dmg = Math.floor(ec.atk * (0.15 + Math.random() * 0.1) * (bs.defending ? 0.5 : 1));
-      bs.playerHP -= dmg;
-      addBattleLog(`${ec.name} の攻撃！ ${dmg.toLocaleString()} ダメージ${bs.defending ? '（防御で半減！）' : '！'}`, 'log-atk');
-      showDamagePopup('player', dmg, 'atk-dmg');
-      if (bs.defending) {
-        const counter = Math.floor(pc.atk * 0.08);
-        bs.enemyHP -= counter;
-        addBattleLog(`${pc.name} の反撃！ ${counter.toLocaleString()} ダメージ！`, 'log-def');
-        setTimeout(() => showDamagePopup('enemy', counter, 'atk-dmg'), 300);
-      }
-      break;
-    }
-    case 'skill': {
-      const dmg = Math.floor((ec.atk + ec.def * 0.5) * (0.25 + Math.random() * 0.15) * (bs.defending ? 0.5 : 1));
-      bs.playerHP -= dmg; bs.enemySkillCD = 3;
-      addBattleLog(`${ec.name} のスキル発動！ ${dmg.toLocaleString()} の大ダメージ${bs.defending ? '（防御で半減！）' : '！'}`, 'log-skill');
-      showDamagePopup('player', dmg, 'skill-dmg'); break;
-    }
-    case 'heal': {
-      const heal = Math.floor(ec.def * (0.12 + Math.random() * 0.08));
-      bs.enemyHP = Math.min(bs.enemyMaxHP, bs.enemyHP + heal);
-      addBattleLog(`${ec.name} はHPを ${heal.toLocaleString()} 回復した！`, 'log-heal');
-      showDamagePopup('enemy', heal, 'heal-dmg'); break;
-    }
-    case 'defend': { addBattleLog(`${ec.name} は防御の構えを取った！`, 'log-def'); break; }
-  }
-  updateBattleHP();
-  if (bs.playerHP <= 0) { setTimeout(() => finishBattle('lose'), 600); return; }
-  if (bs.enemyHP <= 0) { setTimeout(() => finishBattle('win'), 600); return; }
-
-  bs.turn++;
-  if (bs.skillCD > 0) bs.skillCD--;
-  if (bs.enemySkillCD > 0) bs.enemySkillCD--;
-  updateTurnDisplay();
-  if (bs.turn > 30) { setTimeout(() => finishBattle('draw'), 600); return; }
-  // 全ボタンを有効化してからスキルだけCDチェック
-  document.querySelectorAll('.bf-act-btn').forEach(b => b.disabled = false);
-  updateSkillButton();
-}
-
-function finishBattle(result) {
-  const bs = battleState, pc = bs.player, ec = bs.enemy;
-  document.getElementById('bfActions').style.display = 'none';
-  const resultDiv = document.getElementById('bfResult');
-  const resultText = document.getElementById('bfResultText');
-  const resultDetail = document.getElementById('bfResultDetail');
-  resultDiv.style.display = 'block';
-  let detail = `<div>ターン数: ${bs.turn}</div>`;
-
-  if (result === 'win') {
-    resultText.textContent = '🎉 WIN!'; resultText.className = 'bf-result-text win';
-    S.br.w++; spawnP(30);
-    ec.isNew = true; ec.ts = Date.now(); S.col.unshift(ec);
-    dedupeCollection();
-    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${pc.name} が ${ec.name} に勝ちました！</div>`;
-    detail += `<div class="b-gain">+ ${ec.name} (${ec.rar}) を獲得！</div>`;
-  } else if (result === 'lose') {
-    resultText.textContent = '💀 LOSE...'; resultText.className = 'bf-result-text lose';
-    S.br.l++;
-    const idx = S.col.findIndex(c => c.id === pc.id);
-    if (idx !== -1) S.col.splice(idx, 1);
-    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${pc.name} が ${ec.name} に負けました...</div>`;
-    detail += `<div class="b-lose-card">- ${pc.name} (${pc.rar}) を没収された...</div>`;
-  } else {
-    resultText.textContent = '🤝 DRAW'; resultText.className = 'bf-result-text'; resultText.style.color = 'var(--dim)';
-    S.br.d = (S.br.d || 0) + 1;
-    detail += `<div style="font-size:.95rem;color:var(--dim);margin:8px 0">${pc.name} と ${ec.name} は引き分けました</div>`;
-  }
-  detail += `<div style="margin-top:8px;font-size:.82rem">戦績: ${S.br.w}勝 ${S.br.l}敗 ${S.br.d||0}分</div>`;
-  resultDetail.innerHTML = detail;
-  save();
-}
-
-function endBattle() {
-  document.getElementById('bBattlePhase').style.display = 'none';
-  document.getElementById('bSelectPhase').style.display = 'block';
-  battleState = null; renderBattleSelect();
 }
 
 // ============================================================
@@ -788,9 +938,7 @@ if (S.lt) {
 }
 
 // ============================================================
-// コナミコマンド R18オンリーモード
-// PC: ↑↑↓↓←→←→BA (キーボード)
-// スマホ: 上上下下左右左右スワイプ → A,Bボタン表示 → A,B順押し
+// コナミコマンド
 // ============================================================
 (function(){
   const KONAMI_KEYS = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
@@ -798,11 +946,9 @@ if (S.lt) {
   let keySeq = [];
   let swipeSeq = [];
   let swStartX = 0, swStartY = 0;
-  let abPhase = false; // スマホ用: スワイプ完了後のA,B入力待ち
+  let abPhase = false;
 
-  // キーボード版
   document.addEventListener('keydown', function(e) {
-    // ガチャ画面でのみ有効（カードビューアー非表示時）
     if (document.getElementById('cardViewer').style.display !== 'none') return;
     if (document.querySelector('.ho.active') || document.querySelector('.do.active')) return;
 
@@ -816,7 +962,6 @@ if (S.lt) {
     }
   });
 
-  // スマホ スワイプ検出
   document.addEventListener('touchstart', function(e) {
     if (abPhase) return;
     swStartX = e.touches[0].clientX;
@@ -825,14 +970,13 @@ if (S.lt) {
 
   document.addEventListener('touchend', function(e) {
     if (abPhase) return;
-    // カードビューアー表示中はスキップ（カードめくりと競合）
     if (document.getElementById('cardViewer').style.display !== 'none') return;
 
     const dx = e.changedTouches[0].clientX - swStartX;
     const dy = e.changedTouches[0].clientY - swStartY;
     const absDx = Math.abs(dx), absDy = Math.abs(dy);
 
-    if (absDx < 30 && absDy < 30) return; // タップは無視
+    if (absDx < 30 && absDy < 30) return;
 
     let dir = '';
     if (absDy > absDx) dir = dy < 0 ? 'up' : 'down';
@@ -891,7 +1035,7 @@ if (S.lt) {
   function activateGoldenBonus() {
     const now = Date.now();
     const lastUsed = S.goldenBonusAt || 0;
-    const cooldown = 60 * 60 * 1000; // 1時間
+    const cooldown = 60 * 60 * 1000;
 
     if (now - lastUsed < cooldown) {
       const remaining = Math.ceil((cooldown - (now - lastUsed)) / 60000);
@@ -899,9 +1043,8 @@ if (S.lt) {
       return;
     }
 
-    // 金パックを1つ付与
     S.goldenBonusAt = now;
-    S.goldenBonus = true; // 次のパック開封を金パックにするフラグ
+    S.goldenBonus = true;
     save();
     spawnP(40);
     showKonamiNotification('🌟 金パック獲得！ 🌟', '#ffd700');
@@ -915,9 +1058,7 @@ if (S.lt) {
     setTimeout(() => notif.remove(), 2000);
   }
 
-  // CSS for konami animation
   const style = document.createElement('style');
   style.textContent = `@keyframes konamiPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.3)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.2)}40%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-55%) scale(1.1)}}`;
   document.head.appendChild(style);
-
 })();
