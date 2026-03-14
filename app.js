@@ -27,7 +27,7 @@ const FL = [
   "二次創作の可能性を無限に広げる、魔法の言葉。",
 ];
 
-let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false };
+let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, goldenBonus:false, goldenBonusAt:0 };
 try { const v = localStorage.getItem('pxg5'); if(v) S = {...S, ...JSON.parse(v)}; } catch(e) {}
 
 // 同名カードの重複を統合（最高レア度のものを残す）
@@ -305,7 +305,8 @@ async function openPack() {
 
   try {
     S.pk--; S.pc++;
-    const isGold = S.pc % 10 === 0;
+    const isGold = S.pc % 10 === 0 || S.goldenBonus === true;
+    if (S.goldenBonus) { S.goldenBonus = false; save(); }
     const packOImg = document.getElementById('packOImg');
     if (packOImg) packOImg.src = isGold ? 'pix_gold.png' : 'pix.png';
 
@@ -431,9 +432,10 @@ function shareRes() {
 function updPk() {
   document.getElementById('pN').textContent = S.pk;
   const ng = 10 - S.pc % 10;
-  document.getElementById('pG').textContent = ng === 10 ? '金パックまであと10回' : `金パックまであと${ng}回`;
+  const hasBonus = S.goldenBonus === true;
+  document.getElementById('pG').textContent = hasBonus ? '🌟 金パック準備完了！' : ng === 10 ? '金パックまであと10回' : `金パックまであと${ng}回`;
   const pkImg = document.querySelector('.pk-img');
-  if (pkImg) pkImg.src = (ng === 1) ? 'pix_gold.png' : 'pix.png';
+  if (pkImg) pkImg.src = (ng === 1 || hasBonus) ? 'pix_gold.png' : 'pix.png';
 }
 
 setInterval(() => {
@@ -721,7 +723,7 @@ function finishBattle(result) {
     S.br.l++;
     const idx = S.col.findIndex(c => c.id === pc.id);
     if (idx !== -1) S.col.splice(idx, 1);
-    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${ec.name} が ${pc.name} に勝ちました...</div>`;
+    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${pc.name} が ${ec.name} に負けました...</div>`;
     detail += `<div class="b-lose-card">- ${pc.name} (${pc.rar}) を没収された...</div>`;
   } else {
     resultText.textContent = '🤝 DRAW'; resultText.className = 'bf-result-text'; resultText.style.color = 'var(--dim)';
@@ -810,7 +812,7 @@ if (S.lt) {
 
     if (keySeq.length === 10 && keySeq.every((k, i) => k === KONAMI_KEYS[i])) {
       keySeq = [];
-      activateR18Only();
+      activateGoldenBonus();
     }
   });
 
@@ -860,10 +862,10 @@ if (S.lt) {
         btn.style.borderColor = '#ffd700';
         abSeq.push(label);
         if (abSeq.length === 2) {
-          if (abSeq[0] === 'A' && abSeq[1] === 'B') {
+          if (abSeq[0] === 'B' && abSeq[1] === 'A') {
             overlay.remove();
             abPhase = false;
-            activateR18Only();
+            activateGoldenBonus();
           } else {
             abSeq = [];
             overlay.remove();
@@ -874,10 +876,9 @@ if (S.lt) {
       return btn;
     };
 
-    overlay.appendChild(makeBtn('A'));
     overlay.appendChild(makeBtn('B'));
+    overlay.appendChild(makeBtn('A'));
 
-    // ×ボタン
     const close = document.createElement('button');
     close.textContent = '✕';
     close.style.cssText = 'position:absolute;top:20px;right:20px;background:none;border:none;color:rgba(255,255,255,.5);font-size:1.5rem;cursor:pointer;';
@@ -887,22 +888,23 @@ if (S.lt) {
     document.body.appendChild(overlay);
   }
 
-  function activateR18Only() {
-    if (S.r18only) {
-      // 解除
-      S.r18only = false;
-      S.r18 = false;
-      save();
-      showKonamiNotification('R-18オンリーモード解除', '#0096fa');
-    } else {
-      // 発動
-      S.r18only = true;
-      S.r18 = true;
-      save();
-      showKonamiNotification('🔞 R-18 ONLY MODE 🔞', '#ff4757');
+  function activateGoldenBonus() {
+    const now = Date.now();
+    const lastUsed = S.goldenBonusAt || 0;
+    const cooldown = 60 * 60 * 1000; // 1時間
+
+    if (now - lastUsed < cooldown) {
+      const remaining = Math.ceil((cooldown - (now - lastUsed)) / 60000);
+      showKonamiNotification(`次の金パックまで ${remaining}分`, '#ff9f43');
+      return;
     }
-    const sw = document.getElementById('r18Switch');
-    if (sw) sw.checked = S.r18;
+
+    // 金パックを1つ付与
+    S.goldenBonusAt = now;
+    S.goldenBonus = true; // 次のパック開封を金パックにするフラグ
+    save();
+    spawnP(40);
+    showKonamiNotification('🌟 金パック獲得！ 🌟', '#ffd700');
   }
 
   function showKonamiNotification(text, color) {
@@ -918,11 +920,4 @@ if (S.lt) {
   style.textContent = `@keyframes konamiPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.3)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.2)}40%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-55%) scale(1.1)}}`;
   document.head.appendChild(style);
 
-  // R18オンリーモードのインジケーター
-  if (S.r18only) {
-    const ind = document.createElement('div');
-    ind.style.cssText = 'position:fixed;bottom:8px;left:8px;font-size:.6rem;color:rgba(255,71,87,.5);z-index:99;pointer-events:none;';
-    ind.textContent = '🔞 R18 ONLY';
-    document.body.appendChild(ind);
-  }
 })();
