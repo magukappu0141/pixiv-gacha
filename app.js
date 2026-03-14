@@ -165,14 +165,18 @@ function cardHTML(c, w, clickable) {
   const link = `https://dic.pixiv.net/a/${encodeURIComponent(c.name)}`;
   const onclick = clickable !== false ? `onclick="window.open('${link.replace(/'/g,"\\'")}','_blank')"` : '';
   const cursor = clickable !== false ? 'cursor:pointer;' : '';
+  // 説明文を80文字以内に切り詰め（フレーバーテキストがある場合はさらに短く）
+  let desc = c.desc || '';
+  const maxLen = c.flav ? 55 : 80;
+  if (desc.length > maxLen) desc = desc.substring(0, maxLen) + '…';
+  const flavHTML = c.flav ? `<div class="flav">「${c.flav}」</div>` : '';
   return `<div class="card card-${c.rar}" style="width:${width}px;${cursor}" ${onclick}>
-    <div class="c-hd"><span class="c-rar" style="color:${RC[ri].cl}">${c.rar}</span><span class="c-nm">${c.name}</span><span class="c-star">☆</span></div>
+    <div class="c-hd"><span class="c-rar" style="color:${RC[ri].cl}">${c.rar}</span><span class="c-nm">${c.name}</span></div>
     <div class="c-img" style="width:${width}px">
       <img src="${getImgURL(c.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer" loading="lazy">
       <div class="c-fallback" style="display:none"><span class="c-fname">${c.name}</span></div>
-      <span class="c-ibtn">i</span>
     </div>
-    <div class="c-desc">${c.desc}${c.flav ? `<div class="flav">「${c.flav}」</div>` : ''}</div>
+    <div class="c-desc">${desc}${flavHTML}</div>
     <div class="c-stats">
       <div class="c-st"><div class="c-stl atk">ATK</div><div class="c-stv atk">${c.atk.toLocaleString()}</div></div>
       <div class="c-st"><div class="c-stl def">DEF</div><div class="c-stv def">${c.def.toLocaleString()}</div></div>
@@ -661,17 +665,19 @@ function finishBattle(result) {
     resultText.textContent = '🎉 WIN!'; resultText.className = 'bf-result-text win';
     S.br.w++; spawnP(30);
     ec.isNew = true; ec.ts = Date.now(); S.col.unshift(ec);
+    detail += `<div style="font-size:1rem;color:var(--txt);margin:8px 0">「${pc.name}」が「${ec.name}」に勝ちました！</div>`;
     detail += `<div class="b-gain">+ 「${ec.name}」(${ec.rar}) を獲得！</div>`;
   } else if (result === 'lose') {
     resultText.textContent = '💀 LOSE...'; resultText.className = 'bf-result-text lose';
     S.br.l++;
     const idx = S.col.findIndex(c => c.id === pc.id);
     if (idx !== -1) S.col.splice(idx, 1);
+    detail += `<div style="font-size:1rem;color:var(--txt);margin:8px 0">「${ec.name}」が「${pc.name}」に勝ちました...</div>`;
     detail += `<div class="b-lose-card">- 「${pc.name}」(${pc.rar}) を没収された...</div>`;
   } else {
     resultText.textContent = '🤝 DRAW'; resultText.className = 'bf-result-text'; resultText.style.color = 'var(--dim)';
     S.br.d = (S.br.d || 0) + 1;
-    detail += '<div style="color:var(--dim)">引き分け。カードの移動なし。</div>';
+    detail += `<div style="font-size:1rem;color:var(--dim);margin:8px 0">「${pc.name}」と「${ec.name}」は引き分けました</div>`;
   }
   detail += `<div style="margin-top:8px;font-size:.82rem">戦績: ${S.br.w}勝 ${S.br.l}敗 ${S.br.d||0}分</div>`;
   resultDetail.innerHTML = detail;
