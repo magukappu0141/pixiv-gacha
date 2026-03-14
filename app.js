@@ -43,7 +43,7 @@ function dedupeCollection() {
 }
 dedupeCollection();
 
-function save() { try { localStorage.setItem('pxg5', JSON.stringify(S)); } catch(e) {} }
+function save() { dedupeCollection(); try { localStorage.setItem('pxg5', JSON.stringify(S)); } catch(e) {} }
 
 let cur = [], ci = 0;
 const sfxFlip = document.getElementById('sfxFlip');
@@ -451,8 +451,9 @@ let zS = 'newest';
 function sZ(t, b) { zS = t; document.querySelectorAll('.z-sort button').forEach(x => x.classList.remove('active')); if (b) b.classList.add('active'); renZ(); }
 
 function renZ() {
+  dedupeCollection(); // 表示前に必ず重複排除
   const g = document.getElementById('zGrid'), e = document.getElementById('zE');
-  document.getElementById('zCnt').textContent = `${S.col.length}枚 (ユニーク: ${new Set(S.col.map(c => c.name)).size})`;
+  document.getElementById('zCnt').textContent = `${S.col.length}枚`;
   if (!S.col.length) { g.innerHTML = ''; e.style.display = 'block'; return; }
   e.style.display = 'none';
   let s = [...S.col];
@@ -526,7 +527,33 @@ async function startBattle() {
   const btn = document.getElementById('battleBtn');
   if (btn) { btn.disabled = true; btn.textContent = '対戦相手を探しています...'; }
 
-  const ec = articleToCard(generateFallbackArticles(1)[0]);
+  let ec;
+  try {
+    // プロキシから持っていないカードを取得
+    const owned = getOwnedNames();
+    const r18val = S.r18only ? 2 : S.r18 ? 1 : 0;
+    const resp = await fetch(`${PROXY_BASE}/random?count=3&r18=${r18val}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      const candidates = (data.articles || []).filter(a => !owned.has(a.name));
+      if (candidates.length > 0) {
+        ec = articleToCard(candidates[Math.floor(Math.random() * candidates.length)]);
+      }
+    }
+  } catch(e) { console.warn('Enemy fetch failed:', e); }
+
+  // フォールバック: プロキシ失敗時はローカルリストから
+  if (!ec) {
+    const owned = getOwnedNames();
+    const fallbacks = generateFallbackArticles(10).filter(a => !owned.has(a.name));
+    if (fallbacks.length > 0) {
+      ec = articleToCard(fallbacks[Math.floor(Math.random() * fallbacks.length)]);
+    } else {
+      // 本当に全部持っている場合は適当に生成
+      ec = articleToCard(generateFallbackArticles(1)[0]);
+    }
+  }
+
   const playerMaxHP = calcHP(pc), enemyMaxHP = calcHP(ec);
 
   battleState = { player: pc, enemy: ec, turn: 1, playerHP: playerMaxHP, enemyHP: enemyMaxHP, playerMaxHP, enemyMaxHP, skillCD: 0, enemySkillCD: 0, defending: false, log: [] };
