@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://pixiv-gacha.vercel.app/sitemap.xml
