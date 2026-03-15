@@ -186,7 +186,10 @@
       <div class="ex-cost-row"><span class="rc-lr">LR</span> 500pt</div>
     </div>
     <div class="ex-input-row">
-      <input type="text" id="exUrl" placeholder="百科事典URL or 記事名" class="ex-input">
+      <div class="ex-autocomplete-wrap">
+        <input type="text" id="exUrl" placeholder="百科事典URL or 記事名" class="ex-input" autocomplete="off" oninput="onExInputChange()" onkeydown="onExKeydown(event)">
+        <div class="ex-suggestions" id="exSuggestions"></div>
+      </div>
       <button class="ex-search-btn" onclick="previewExchange()">検索</button>
     </div>
     <div class="ex-status" id="exStatus"></div>

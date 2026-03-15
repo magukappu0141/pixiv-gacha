@@ -199,8 +199,16 @@ nav{position:sticky;top:0;z-index:100;background:rgba(14,14,14,.96);backdrop-fil
 .ex-cost-row{display:flex;align-items:center;gap:4px}
 .ex-cost-row span{font-weight:900;font-size:.8rem}
 .ex-input-row{display:flex;gap:8px;margin-bottom:12px}
-.ex-input{flex:1;padding:10px 14px;border-radius:10px;border:2px solid var(--bdr);background:var(--s2);color:var(--txt);font-family:inherit;font-size:.88rem;outline:none;transition:.15s}
+.ex-autocomplete-wrap{flex:1;position:relative}
+.ex-input{width:100%;padding:10px 14px;border-radius:10px;border:2px solid var(--bdr);background:var(--s2);color:var(--txt);font-family:inherit;font-size:.88rem;outline:none;transition:.15s}
 .ex-input:focus{border-color:var(--accent)}
+.ex-suggestions{display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--s1);border:1px solid var(--bdr);border-top:none;border-radius:0 0 10px 10px;z-index:10}
+.ex-suggestions.active{display:block}
+.ex-sug-item{padding:8px 14px;font-size:.82rem;color:var(--txt);cursor:pointer;transition:.1s;display:flex;align-items:center;gap:8px}
+.ex-sug-item:hover,.ex-sug-item.highlighted{background:var(--s2)}
+.ex-sug-item .sug-badge{font-size:.6rem;font-weight:900;padding:1px 5px;border-radius:4px;flex-shrink:0}
+.ex-sug-item .sug-owned{color:var(--green);font-size:.6rem}
+.ex-sug-item .sug-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ex-search-btn{padding:10px 20px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-family:inherit;font-size:.88rem;font-weight:700;cursor:pointer;transition:.15s;white-space:nowrap}
 .ex-search-btn:hover{background:#007acc}
 .ex-status{font-size:.82rem;color:var(--dim);margin-bottom:10px;line-height:1.6}

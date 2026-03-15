@@ -45,6 +45,9 @@ function cleanExpiredLocks() {
 }
 cleanExpiredLocks();
 
+// 予測検索用キャッシュ（グローバル）
+let exSugCache = new Set();
+
 // 同名カードの重複を統合（最高レア度のものを残す）
 function dedupeCollection() {
   const best = new Map();
@@ -191,6 +194,8 @@ function articleToCard(article, guaranteedMinRarity) {
   if (guaranteedMinRarity && RO[rarity] < RO[guaranteedMinRarity]) rarity = guaranteedMinRarity;
   const stats = calcStats(article.views, article.contentLength, rarity, ic);
   const flav = RO[rarity] >= 4 ? FL[Math.floor(Math.random() * FL.length)] : null;
+  // 予測検索キャッシュに追加
+  if (article.name) exSugCache.add(article.name);
   return { id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5), name: article.name, desc: article.desc || `ピクシブ百科事典の記事「${article.name}」`, rar: rarity, rl: RC[RO[rarity]].l, atk: stats.atk, def: stats.def, flav, ts: Date.now(), views: article.views, contentLength: article.contentLength, illustCount: ic };
 }
 
@@ -878,7 +883,158 @@ async function openExchange() {
   document.getElementById('exPreview').innerHTML = '';
   document.getElementById('exStatus').textContent = '';
   document.getElementById('exConfirmBtn').style.display = 'none';
+  document.getElementById('exSuggestions').className = 'ex-suggestions';
+  document.getElementById('exSuggestions').innerHTML = '';
+  exSugHighlight = -1;
+  // 予測検索用のキャッシュを準備
+  if (exSugCache.size === 0) loadExSugCache();
 }
+
+// ============================================================
+// 予測検索システム
+// ============================================================
+let exSugDebounceTimer = null;
+let exSugHighlight = -1;
+let exSugFetching = false;
+
+// 所持カードのリンク先を初期キャッシュとして読み込む
+function loadExSugCache() {
+  // 所持カード名をまず追加
+  for (const c of S.col) exSugCache.add(c.name);
+}
+
+// プロキシから記事のリンク先を取得してキャッシュに追加
+async function fetchSuggestionsFromProxy(query) {
+  if (exSugFetching) return;
+  if (query.length < 2) return;
+
+  exSugFetching = true;
+  try {
+    // 入力テキストをそのまま記事名として/a/を取得→リンク先を候補にする
+    const resp = await fetch(`${PROXY_BASE}/article?name=${encodeURIComponent(query)}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.exists && data.name) {
+        exSugCache.add(data.name);
+      }
+    }
+  } catch(e) {}
+  exSugFetching = false;
+}
+
+// 入力変更時
+function onExInputChange() {
+  const input = document.getElementById('exUrl');
+  const query = input.value.trim();
+  exSugHighlight = -1;
+
+  if (query.length < 1) {
+    hideSuggestions();
+    return;
+  }
+
+  // デバウンスでプロキシにも問い合わせ
+  clearTimeout(exSugDebounceTimer);
+  exSugDebounceTimer = setTimeout(() => fetchSuggestionsFromProxy(query), 500);
+
+  // ローカルキャッシュから即座に候補を表示
+  showSuggestions(query);
+}
+
+function showSuggestions(query) {
+  const sugEl = document.getElementById('exSuggestions');
+  const q = query.toLowerCase();
+
+  // キャッシュ内で前方一致・部分一致する候補を抽出
+  const owned = getOwnedNames();
+  const matches = [];
+
+  for (const name of exSugCache) {
+    const nameLower = name.toLowerCase();
+    if (nameLower.includes(q) && name !== query) {
+      const isOwned = owned.has(name);
+      const isPrefix = nameLower.startsWith(q);
+      matches.push({ name, isOwned, isPrefix });
+    }
+    if (matches.length >= 15) break;
+  }
+
+  // 前方一致を優先、次に部分一致。所持済みは後ろに
+  matches.sort((a, b) => {
+    if (a.isPrefix !== b.isPrefix) return a.isPrefix ? -1 : 1;
+    if (a.isOwned !== b.isOwned) return a.isOwned ? 1 : -1;
+    return a.name.localeCompare(b.name, 'ja');
+  });
+
+  if (matches.length === 0) {
+    hideSuggestions();
+    return;
+  }
+
+  sugEl.innerHTML = matches.map((m, i) => {
+    const ownedBadge = m.isOwned ? '<span class="sug-owned">所持</span>' : '';
+    return `<div class="ex-sug-item" data-idx="${i}" onmousedown="selectSuggestion('${m.name.replace(/'/g, "\\'")}')" onmouseenter="exSugHighlight=${i};highlightSug()">
+      <span class="sug-name">${m.name}</span>${ownedBadge}
+    </div>`;
+  }).join('');
+  sugEl.className = 'ex-suggestions active';
+}
+
+function hideSuggestions() {
+  const sugEl = document.getElementById('exSuggestions');
+  sugEl.className = 'ex-suggestions';
+  sugEl.innerHTML = '';
+  exSugHighlight = -1;
+}
+
+function selectSuggestion(name) {
+  document.getElementById('exUrl').value = name;
+  hideSuggestions();
+  previewExchange();
+}
+
+function onExKeydown(e) {
+  const sugEl = document.getElementById('exSuggestions');
+  const items = sugEl.querySelectorAll('.ex-sug-item');
+  if (!items.length) {
+    if (e.key === 'Enter') { previewExchange(); e.preventDefault(); }
+    return;
+  }
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    exSugHighlight = Math.min(exSugHighlight + 1, items.length - 1);
+    highlightSug();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    exSugHighlight = Math.max(exSugHighlight - 1, -1);
+    highlightSug();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (exSugHighlight >= 0 && exSugHighlight < items.length) {
+      const name = items[exSugHighlight].querySelector('.sug-name').textContent;
+      selectSuggestion(name);
+    } else {
+      hideSuggestions();
+      previewExchange();
+    }
+  } else if (e.key === 'Escape') {
+    hideSuggestions();
+  }
+}
+
+function highlightSug() {
+  const items = document.querySelectorAll('.ex-sug-item');
+  items.forEach((item, i) => item.classList.toggle('highlighted', i === exSugHighlight));
+  if (exSugHighlight >= 0 && items[exSugHighlight]) {
+    items[exSugHighlight].scrollIntoView({ block: 'nearest' });
+  }
+}
+
+// 入力欄外クリックで候補を閉じる
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.ex-autocomplete-wrap')) hideSuggestions();
+});
 
 function closeExchange() {
   document.getElementById('exchangeO').classList.remove('active');
