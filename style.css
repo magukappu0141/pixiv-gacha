@@ -250,6 +250,8 @@ nav{position:sticky;top:0;z-index:100;background:rgba(14,14,14,.96);backdrop-fil
 .ht th{background:var(--s2);color:var(--txt);font-weight:700}
 .rc-lr{background:linear-gradient(90deg,#ff0000,#ff8800,#ffff00,#00cc00,#0088ff,#8800ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:900}.rc-ur{color:var(--ur);font-weight:900}.rc-ssr{color:var(--ssr);font-weight:900}
 .rc-sr{color:var(--sr);font-weight:900}.rc-r{color:var(--r);font-weight:900}.rc-uc{color:var(--uc);font-weight:900}.rc-c{color:var(--c);font-weight:900}
+.btn-reset{width:100%;padding:14px;border-radius:10px;border:2px solid var(--red);background:rgba(255,71,87,.08);color:var(--red);font-family:inherit;font-size:.88rem;font-weight:700;cursor:pointer;transition:.15s;margin-top:8px}
+.btn-reset:hover{background:rgba(255,71,87,.2)}
 
 /* ===== DETAIL ===== */
 .do{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:150;justify-content:center;align-items:center;padding:20px;overflow-y:auto}

@@ -1186,6 +1186,47 @@ document.querySelectorAll('.ni').forEach(i => {
 
 function toggleHelp() { document.getElementById('helpO').classList.toggle('active'); }
 
+function resetAllData() {
+  if (S.col.length === 0) { alert('カードがありません'); return; }
+
+  // レア度ごとのポイント還元率
+  const REFUND = { C:1, UC:3, R:8, SR:15, SSR:30, UR:60, LR:150 };
+  let totalRefund = 0;
+  const breakdown = {};
+
+  for (const c of S.col) {
+    const pts = REFUND[c.rar] || 1;
+    totalRefund += pts;
+    breakdown[c.rar] = (breakdown[c.rar] || 0) + 1;
+  }
+
+  const cardCount = S.col.length;
+  const lines = Object.entries(breakdown)
+    .sort((a, b) => RO[b[0]] - RO[a[0]])
+    .map(([rar, cnt]) => `  ${rar} × ${cnt}枚 = ${cnt * REFUND[rar]} pt`)
+    .join('\n');
+
+  const msg = `全${cardCount}枚のカードを削除して${totalRefund}ポイント還元します。\n\n内訳:\n${lines}\n\n戦績・ロック状態・連勝記録もリセットされます。\n\nよろしいですか？`;
+
+  if (!confirm(msg)) return;
+  if (!confirm('本当に削除しますか？ この操作は取り消せません。')) return;
+
+  S.pts += totalRefund;
+  S.col = [];
+  S.br = { w:0, l:0, d:0 };
+  S.cardLocks = {};
+  S.cardWinStreaks = {};
+  S.pc = 0;
+  S.pk = 10;
+  S.lt = Date.now();
+  save();
+  updPk();
+
+  alert(`✅ ${cardCount}枚のカードを削除しました！\n${totalRefund} ポイントが還元されました。\n（現在の所持ポイント: ${S.pts} pt）`);
+  toggleHelp();
+  renZ();
+}
+
 // ============================================================
 // EFFECTS
 // ============================================================
