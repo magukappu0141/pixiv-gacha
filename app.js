@@ -30,8 +30,20 @@ const FL = [
   "二次創作の可能性を無限に広げる、魔法の言葉。",
 ];
 
-let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, goldenBonus:false, goldenBonusAt:0, pts:0 };
-try { const v = localStorage.getItem('pxg5'); if(v) { const parsed = JSON.parse(v); S = {...S, ...parsed}; if (typeof S.pts !== 'number') S.pts = 0; } } catch(e) {}
+let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, goldenBonus:false, goldenBonusAt:0, pts:0, cardLocks:{}, cardWinStreaks:{} };
+try { const v = localStorage.getItem('pxg5'); if(v) { const parsed = JSON.parse(v); S = {...S, ...parsed}; if (typeof S.pts !== 'number') S.pts = 0; if (!S.cardLocks) S.cardLocks = {}; if (!S.cardWinStreaks) S.cardWinStreaks = {}; } } catch(e) {}
+
+// 期限切れのロックを掃除
+function cleanExpiredLocks() {
+  const now = Date.now();
+  for (const name in S.cardLocks) {
+    if (S.cardLocks[name] <= now) {
+      delete S.cardLocks[name];
+      delete S.cardWinStreaks[name];
+    }
+  }
+}
+cleanExpiredLocks();
 
 // 同名カードの重複を統合（最高レア度のものを残す）
 function dedupeCollection() {
@@ -509,6 +521,7 @@ let battleState = null;
 let battleSortMode = 'rarity';
 
 function renderBattleSelect() {
+  cleanExpiredLocks();
   const grid = document.getElementById('bSelGrid');
   const btn = document.getElementById('battleBtn');
   const rec = document.getElementById('baRecord');
@@ -537,10 +550,18 @@ function renderBattleSelect() {
 
   grid.innerHTML = unique.slice(0, 50).map(c => {
     const ri = RO[c.rar];
-    return `<div class="b-sel-card card-${c.rar}" data-id="${c.id}" onclick="selectBattleCard('${c.id}',this)">
+    const lockUntil = S.cardLocks[c.name] || 0;
+    const isLocked = lockUntil > Date.now();
+    const lockRemain = isLocked ? Math.ceil((lockUntil - Date.now()) / 60000) : 0;
+    const streak = S.cardWinStreaks[c.name] || 0;
+    const streakText = streak > 0 ? `🔥${streak}連勝` : '';
+    const lockClass = isLocked ? ' locked' : '';
+    const lockLabel = isLocked ? `<div class="b-sel-lock">🔒 ${lockRemain}分</div>` : '';
+    const onclick = isLocked ? '' : `onclick="selectBattleCard('${c.id}',this)"`;
+    return `<div class="b-sel-card card-${c.rar}${lockClass}" data-id="${c.id}" ${onclick}>
     <div class="b-sel-rar" style="color:${RC[ri].cl}">${c.rar}</div>
     <div class="b-sel-name">${c.name}</div>
-    <div class="b-sel-info">ATK:${c.atk.toLocaleString()}</div></div>`;
+    <div class="b-sel-info">${streakText || 'ATK:'+c.atk.toLocaleString()}</div>${lockLabel}</div>`;
   }).join('');
 }
 
@@ -792,6 +813,7 @@ function finishBattle() {
 
   const won = bs.wins > bs.losses;
   const draw = bs.wins === bs.losses;
+  const cardName = bs.player.name;
 
   let detail = '';
   let pointsChange = 0;
@@ -801,17 +823,35 @@ function finishBattle() {
     resultText.textContent = '🎉 WIN!'; resultText.className = 'bf-result-text win';
     S.br.w++; spawnP(30);
     S.pts += pointsChange;
+
+    // 連勝トラッキング
+    S.cardWinStreaks[cardName] = (S.cardWinStreaks[cardName] || 0) + 1;
+    const streak = S.cardWinStreaks[cardName];
+
     detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で勝利！</div>`;
     detail += `<div class="b-gain">+ ${pointsChange} ポイント獲得！</div>`;
+
+    if (streak >= 3) {
+      // 3連勝でロック（30分）
+      const LOCK_DURATION = 30 * 60 * 1000;
+      S.cardLocks[cardName] = Date.now() + LOCK_DURATION;
+      S.cardWinStreaks[cardName] = 0;
+      detail += `<div style="margin-top:8px;padding:8px 14px;border-radius:8px;background:rgba(255,71,87,.15);color:var(--red);font-size:.82rem">🔒 ${cardName} は3連勝したため30分間バトル使用不可になりました</div>`;
+    } else {
+      detail += `<div style="margin-top:6px;font-size:.78rem;color:var(--orange)">🔥 ${cardName}: ${streak}連勝中${streak === 2 ? '（あと1勝でロック）' : ''}</div>`;
+    }
   } else if (draw) {
     resultText.textContent = '🤝 DRAW'; resultText.className = 'bf-result-text'; resultText.style.color = 'var(--dim)';
     S.br.d = (S.br.d || 0) + 1;
     detail += `<div style="font-size:.95rem;color:var(--dim);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で引き分け</div>`;
+    // 引き分けは連勝リセットしない
   } else {
     pointsChange = -5;
     resultText.textContent = '💀 LOSE...'; resultText.className = 'bf-result-text lose';
     S.br.l++;
     S.pts = Math.max(0, S.pts + pointsChange);
+    // 敗北で連勝リセット
+    S.cardWinStreaks[cardName] = 0;
     detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で敗北...</div>`;
     detail += `<div class="b-lose-card">${pointsChange} ポイント...</div>`;
   }

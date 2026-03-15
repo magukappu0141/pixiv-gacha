@@ -139,6 +139,8 @@ nav{position:sticky;top:0;z-index:100;background:rgba(14,14,14,.96);backdrop-fil
 .b-sel-card{border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;transition:.15s;border:2px solid transparent;opacity:.8}
 .b-sel-card:hover{opacity:1;transform:translateY(-2px)}
 .b-sel-card.selected{border-color:var(--goldb);opacity:1;box-shadow:0 0 12px rgba(255,215,0,.3)}
+.b-sel-card.locked{opacity:.35;cursor:not-allowed;pointer-events:none;position:relative}
+.b-sel-lock{font-size:.55rem;color:var(--red);font-weight:900;margin-top:3px}
 .b-sel-rar{font-size:.85rem;font-weight:900;margin-bottom:2px}
 .b-sel-name{font-size:.7rem;font-weight:700;color:#fff;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .b-sel-info{font-size:.6rem;color:var(--dim);margin-top:2px}
