@@ -215,6 +215,8 @@ function cardHTML(c, w, clickable) {
   const rarStyle = c.rar === 'LR'
     ? 'background:linear-gradient(90deg,#ff0000,#ff8800,#ffff00,#00cc00,#0088ff,#8800ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:900'
     : `color:${RC[ri].cl}`;
+  const ic = c.illustCount || 0;
+  const icText = ic >= 10000 ? (ic / 10000).toFixed(1) + '万' : ic >= 1000 ? (ic / 1000).toFixed(1) + 'k' : ic.toString();
   return `<div class="card card-${c.rar}" style="width:${width}px;${cursor}" ${onclick}>
     <div class="c-hd"><span class="c-rar" style="${rarStyle}">${c.rar}</span><span class="c-nm">${c.name}</span></div>
     <div class="c-img" style="width:${width}px">
@@ -225,6 +227,7 @@ function cardHTML(c, w, clickable) {
     <div class="c-stats">
       <div class="c-st"><div class="c-stl atk">ATK</div><div class="c-stv atk">${c.atk.toLocaleString()}</div></div>
       <div class="c-st"><div class="c-stl def">DEF</div><div class="c-stv def">${c.def.toLocaleString()}</div></div>
+      <div class="c-st"><div class="c-stl illust">ILLUST</div><div class="c-stv illust">${icText}</div></div>
     </div></div>`;
 }
 
@@ -673,17 +676,13 @@ async function startBattle() {
     const resp = await fetch(`${PROXY_BASE}/random?count=5&r18=${r18val}`);
     if (resp.ok) {
       const data = await resp.json();
-      const candidates = (data.articles || []).filter(a => !owned.has(a.name));
-      // 候補からカードを作って同じレア度のものを探す
-      for (const a of candidates) {
-        const card = articleToCard(a);
-        if (card.rar === pc.rar) { ec = card; break; }
-      }
-      // 同レア度がなければ一番近いレア度のものを使う
-      if (!ec && candidates.length > 0) {
-        const cards = candidates.map(a => articleToCard(a));
-        cards.sort((a, b) => Math.abs(RO[a.rar] - RO[pc.rar]) - Math.abs(RO[b.rar] - RO[pc.rar]));
-        ec = cards[0];
+      const candidates = (data.articles || []).filter(a => !owned.has(a.name) && a.name !== pc.name);
+      if (candidates.length > 0) {
+        // ランダムに1つ選んで、同じレア度を強制
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        ec = articleToCard(pick, pc.rar);
+        ec.rar = pc.rar; // 確実に同レア度にする
+        ec.rl = RC[RO[pc.rar]].l;
       }
     }
   } catch(e) { console.warn('Enemy fetch failed:', e); }
@@ -692,10 +691,17 @@ async function startBattle() {
   if (!ec) {
     const fallbacks = generateFallbackArticles(15);
     for (const fb of fallbacks) {
-      const card = articleToCard(fb, pc.rar); // 同じレア度を保証
-      if (card.name !== pc.name) { ec = card; break; }
+      if (fb.name === pc.name) continue;
+      ec = articleToCard(fb, pc.rar);
+      ec.rar = pc.rar;
+      ec.rl = RC[RO[pc.rar]].l;
+      break;
     }
-    if (!ec) ec = articleToCard(generateFallbackArticles(1)[0], pc.rar);
+    if (!ec) {
+      ec = articleToCard(generateFallbackArticles(1)[0], pc.rar);
+      ec.rar = pc.rar;
+      ec.rl = RC[RO[pc.rar]].l;
+    }
   }
 
   // バトルフィールド表示
