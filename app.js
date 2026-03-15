@@ -80,50 +80,46 @@ function initR18Toggle() {
 function determineRarity(views, contentLength, illustCount) {
   const ic = illustCount || 0;
 
-  // イラスト投稿数ベースのレア度判定（メイン）
-  let illustRarity = 'C';
-  if (ic >= 200000) illustRarity = 'LR';
-  else if (ic >= 80000) illustRarity = 'UR';
-  else if (ic >= 30000) illustRarity = 'SSR';
-  else if (ic >= 10000) illustRarity = 'SR';
-  else if (ic >= 3000)  illustRarity = 'R';
-  else if (ic >= 500)   illustRarity = 'UC';
+  // ============================================================
+  // レア度はイラスト投稿数で決定
+  // 投稿数が多い＝pixivで人気＝高レア度
+  // ============================================================
+  // LR  : 200,000件以上（初音ミク、東方Project級）
+  // UR  : 80,000件以上（鬼滅の刃、原神級）
+  // SSR : 30,000件以上（チェンソーマン、ブルーアーカイブ級）
+  // SR  : 10,000件以上（人気キャラ・ペアタグ級）
+  // R   : 3,000件以上（準人気キャラ・マイナー作品級）
+  // UC  : 500件以上（ニッチなタグ級）
+  // C   : 500件未満
 
-  // ランダム抽選（ガチャの運要素）
-  const roll = Math.random() * 100;
-  let rollRarity;
-  if (roll < 0.3)       rollRarity = 'LR';
-  else if (roll < 1.5)  rollRarity = 'UR';
-  else if (roll < 5)    rollRarity = 'SSR';
-  else if (roll < 12)   rollRarity = 'SR';
-  else if (roll < 25)   rollRarity = 'R';
-  else if (roll < 50)   rollRarity = 'UC';
-  else                   rollRarity = 'C';
+  let rarity = 'C';
+  if (ic >= 200000) rarity = 'LR';
+  else if (ic >= 80000) rarity = 'UR';
+  else if (ic >= 30000) rarity = 'SSR';
+  else if (ic >= 10000) rarity = 'SR';
+  else if (ic >= 3000)  rarity = 'R';
+  else if (ic >= 500)   rarity = 'UC';
 
-  // イラスト投稿数ベース70% + ランダム30%
-  let finalRarity;
-  if (Math.random() < 0.7) {
-    finalRarity = RO[illustRarity] >= RO[rollRarity] ? illustRarity : rollRarity;
-  } else {
-    finalRarity = rollRarity;
-  }
+  // ±1段階のランダム揺れ（10%の確率で1段階UP、5%の確率で1段階DOWN）
+  // 完全にイラスト投稿数だけだとガチャ感がなくなるので小さな運要素を残す
+  const rarOrder = ['C','UC','R','SR','SSR','UR','LR'];
+  const idx = rarOrder.indexOf(rarity);
+  const luck = Math.random();
+  if (luck < 0.10 && idx < 6) rarity = rarOrder[idx + 1];       // 10%で1段階UP
+  else if (luck > 0.95 && idx > 0) rarity = rarOrder[idx - 1];  // 5%で1段階DOWN
 
-  // 閲覧数・文字数で微調整（品質低→降格）
-  const qualityScore = views + contentLength / 5;
-  if (finalRarity === 'LR'  && qualityScore < 80000  && ic < 200000) finalRarity = 'UR';
-  if (finalRarity === 'UR'  && qualityScore < 40000  && ic < 80000)  finalRarity = 'SSR';
-  if (finalRarity === 'SSR' && qualityScore < 15000  && ic < 30000)  finalRarity = 'SR';
-
-  return finalRarity;
+  return rarity;
 }
 
 function calcStats(views, contentLength, rarity, illustCount) {
   const mult = RO[rarity] + 1;
   const ic = illustCount || 0;
-  const atkBase = Math.log10(Math.max(views, 10)) * 150 + Math.log10(Math.max(ic, 1)) * 150;
+  // ATK: イラスト投稿数がメイン + 閲覧数がサブ
+  const atkBase = Math.log10(Math.max(ic, 1)) * 200 + Math.log10(Math.max(views, 10)) * 80;
+  // DEF: 記事の充実度（文字数）
   const defBase = Math.log10(Math.max(contentLength, 100)) * 120;
-  const atk = Math.floor(atkBase * mult * (0.8 + Math.random() * 0.4));
-  const def = Math.floor(defBase * mult * (0.8 + Math.random() * 0.4));
+  const atk = Math.floor(atkBase * mult * (0.85 + Math.random() * 0.3));
+  const def = Math.floor(defBase * mult * (0.85 + Math.random() * 0.3));
   return { atk, def };
 }
 
