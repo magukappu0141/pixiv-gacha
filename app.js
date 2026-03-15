@@ -189,9 +189,15 @@ function generateFallbackArticles(count) {
 // CARD CREATION
 // ============================================================
 function articleToCard(article, guaranteedMinRarity) {
-  const ic = article.illustCount || 0;
+  let ic = article.illustCount || 0;
   let rarity = determineRarity(article.views, article.contentLength, ic);
   if (guaranteedMinRarity && RO[rarity] < RO[guaranteedMinRarity]) rarity = guaranteedMinRarity;
+  // illustCountが0のままだとカード表示が0件になるので、レア度から推定
+  if (ic <= 0) {
+    const ranges = { LR:[200000,500000], UR:[80000,200000], SSR:[30000,80000], SR:[10000,30000], R:[3000,10000], UC:[500,3000], C:[50,500] };
+    const [min, max] = ranges[rarity] || [50, 500];
+    ic = Math.floor(min + Math.random() * (max - min));
+  }
   const stats = calcStats(article.views, article.contentLength, rarity, ic);
   const flav = RO[rarity] >= 4 ? FL[Math.floor(Math.random() * FL.length)] : null;
   // 予測検索キャッシュに追加
@@ -216,7 +222,6 @@ function cardHTML(c, w, clickable) {
     ? 'background:linear-gradient(90deg,#ff0000,#ff8800,#ffff00,#00cc00,#0088ff,#8800ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:900'
     : `color:${RC[ri].cl}`;
   const ic = c.illustCount || 0;
-  const icText = ic >= 10000 ? (ic / 10000).toFixed(1) + '万' : ic >= 1000 ? (ic / 1000).toFixed(1) + 'k' : ic.toString();
   return `<div class="card card-${c.rar}" style="width:${width}px;${cursor}" ${onclick}>
     <div class="c-hd"><span class="c-rar" style="${rarStyle}">${c.rar}</span><span class="c-nm">${c.name}</span></div>
     <div class="c-img" style="width:${width}px">
@@ -227,8 +232,9 @@ function cardHTML(c, w, clickable) {
     <div class="c-stats">
       <div class="c-st"><div class="c-stl atk">ATK</div><div class="c-stv atk">${c.atk.toLocaleString()}</div></div>
       <div class="c-st"><div class="c-stl def">DEF</div><div class="c-stv def">${c.def.toLocaleString()}</div></div>
-      <div class="c-st"><div class="c-stl illust">ILLUST</div><div class="c-stv illust">${icText}</div></div>
-    </div></div>`;
+    </div>
+    <div class="c-illust-row"><span class="c-illust-label">🎨 イラスト投稿数</span><span class="c-illust-val">${ic.toLocaleString()} 件</span></div>
+  </div>`;
 }
 
 // ============================================================
