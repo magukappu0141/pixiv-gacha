@@ -368,6 +368,10 @@ async function openPack() {
     }
 
     cards.forEach(c => { c.isNew = true; S.col.unshift(c); });
+
+    // イラスト投稿数をプロキシから一括取得（バックグラウンド）
+    fetchIllustCountsForCards(cards);
+
     dedupeCollection();
     save(); cur = cards; ci = 0;
 
@@ -664,6 +668,26 @@ function estimateIllustCount(tagName, cardData) {
 
   // 何もない場合
   return 200 + Math.floor(Math.random() * 2000);
+}
+
+// カード配列のillustCountをプロキシから一括取得して更新
+async function fetchIllustCountsForCards(cards) {
+  const promises = cards.map(async (card) => {
+    try {
+      const resp = await fetch(`${PROXY_BASE}/illustcount?tag=${encodeURIComponent(card.name)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.count > 0) {
+          card.illustCount = data.count;
+          // コレクション内の同名カードも更新
+          const inCol = S.col.find(c => c.name === card.name);
+          if (inCol) inCol.illustCount = data.count;
+        }
+      }
+    } catch(e) {}
+  });
+  await Promise.allSettled(promises);
+  save();
 }
 
 async function startBattle() {
