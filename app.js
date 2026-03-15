@@ -30,8 +30,12 @@ const FL = [
   "二次創作の可能性を無限に広げる、魔法の言葉。",
 ];
 
-let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, goldenBonus:false, goldenBonusAt:0, pts:0, cardLocks:{}, cardWinStreaks:{} };
-try { const v = localStorage.getItem('pxg5'); if(v) { const parsed = JSON.parse(v); S = {...S, ...parsed}; if (typeof S.pts !== 'number') S.pts = 0; if (!S.cardLocks) S.cardLocks = {}; if (!S.cardWinStreaks) S.cardWinStreaks = {}; } } catch(e) {}
+let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, ultraBonus:false, ultraBonusAt:0, pts:0, cardLocks:{}, cardWinStreaks:{} };
+try { const v = localStorage.getItem('pxg5'); if(v) { const parsed = JSON.parse(v); S = {...S, ...parsed}; if (typeof S.pts !== 'number') S.pts = 0; if (!S.cardLocks) S.cardLocks = {}; if (!S.cardWinStreaks) S.cardWinStreaks = {};
+  // 旧goldenBonusからの移行
+  if (parsed.goldenBonus) { S.ultraBonus = true; delete S.goldenBonus; }
+  if (parsed.goldenBonusAt) { S.ultraBonusAt = parsed.goldenBonusAt; delete S.goldenBonusAt; }
+} } catch(e) {}
 
 // 期限切れのロックを掃除
 function cleanExpiredLocks() {
@@ -208,8 +212,11 @@ function cardHTML(c, w, clickable) {
   const maxLen = c.flav ? 55 : 80;
   if (desc.length > maxLen) desc = desc.substring(0, maxLen) + '…';
   const flavHTML = c.flav ? `<div class="flav">「${c.flav}」</div>` : '';
+  const rarStyle = c.rar === 'LR'
+    ? 'background:linear-gradient(90deg,#ff0000,#ff8800,#ffff00,#00cc00,#0088ff,#8800ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:900'
+    : `color:${RC[ri].cl}`;
   return `<div class="card card-${c.rar}" style="width:${width}px;${cursor}" ${onclick}>
-    <div class="c-hd"><span class="c-rar" style="color:${RC[ri].cl}">${c.rar}</span><span class="c-nm">${c.name}</span></div>
+    <div class="c-hd"><span class="c-rar" style="${rarStyle}">${c.rar}</span><span class="c-nm">${c.name}</span></div>
     <div class="c-img" style="width:${width}px">
       <img src="${getImgURL(c.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer" loading="lazy">
       <div class="c-fallback" style="display:none"><span class="c-fname">${c.name}</span></div>
@@ -236,7 +243,7 @@ function showRareEffect(rarity) {
 
   const particles = [];
   let hue1, hue2, label, textClass;
-  if (rarity === 'LR') { hue1 = 260; hue2 = 310; label = '✦ LEGEND RARE ✦'; textClass = 'lr-text'; }
+  if (rarity === 'LR') { hue1 = 0; hue2 = 360; label = '✦ LEGEND RARE ✦'; textClass = 'lr-text'; }
   else if (rarity === 'UR') { hue1 = 0; hue2 = 30; label = '✦ ULTRA RARE ✦'; textClass = 'ur-text'; }
   else { hue1 = 40; hue2 = 60; label = '✦ SUPER SPECIAL RARE ✦'; textClass = 'ssr-text'; }
 
@@ -325,14 +332,21 @@ async function openPack() {
 
   try {
     S.pk--; S.pc++;
-    const isGold = S.pc % 10 === 0 || S.goldenBonus === true;
-    if (S.goldenBonus) { S.goldenBonus = false; save(); }
+    const isUltra = S.ultraBonus === true;
+    const isGold = !isUltra && (S.pc % 10 === 0);
+    if (S.ultraBonus) { S.ultraBonus = false; save(); }
     const packOImg = document.getElementById('packOImg');
-    if (packOImg) packOImg.src = isGold ? 'pix_gold.png' : 'pix.png';
+    if (packOImg) packOImg.src = isUltra ? 'pix_ultra.png' : isGold ? 'pix_gold.png' : 'pix.png';
 
     const articles = await fetchRandomArticles(5);
     const usedNames = new Set(articles.map(a => a.name));
-    const cards = articles.map((a, i) => articleToCard(a, (isGold && i === 4) ? 'SR' : null));
+    // ウルトラパック: 3枚UR以上確定 / 金パック: 最後の1枚SR以上確定
+    const minRarity = isUltra ? 'UR' : (isGold ? 'SR' : null);
+    const cards = articles.map((a, i) => {
+      if (isUltra && i < 3) return articleToCard(a, 'UR');
+      if (isGold && i === 4) return articleToCard(a, 'SR');
+      return articleToCard(a);
+    });
     // 足りない場合はフォールバック（重複しないように）
     if (cards.length < 5) {
       const fb = generateFallbackArticles(10);
@@ -460,10 +474,10 @@ function shareRes() {
 function updPk() {
   document.getElementById('pN').textContent = S.pk;
   const ng = 10 - S.pc % 10;
-  const hasBonus = S.goldenBonus === true;
-  document.getElementById('pG').textContent = hasBonus ? '🌟 金パック準備完了！' : ng === 10 ? '金パックまであと10回' : `金パックまであと${ng}回`;
+  const hasUltra = S.ultraBonus === true;
+  document.getElementById('pG').textContent = hasUltra ? '🌈 ウルトラパック準備完了！' : ng === 10 ? '金パックまであと10回' : `金パックまであと${ng}回`;
   const pkImg = document.querySelector('.pk-img');
-  if (pkImg) pkImg.src = (ng === 1 || hasBonus) ? 'pix_gold.png' : 'pix.png';
+  if (pkImg) pkImg.src = hasUltra ? 'pix_ultra.png' : (ng === 1) ? 'pix_gold.png' : 'pix.png';
   // ポイント表示更新
   const ptsEl = document.getElementById('ptsDisplay');
   if (ptsEl) ptsEl.textContent = `${S.pts} pt`;
@@ -559,8 +573,11 @@ function renderBattleSelect() {
     const lockClass = isLocked ? ' locked' : '';
     const lockLabel = isLocked ? `<div class="b-sel-lock">🔒 ${lockRemain}分</div>` : '';
     const onclick = isLocked ? '' : `onclick="selectBattleCard('${c.id}',this)"`;
+    const bRarStyle = c.rar === 'LR'
+      ? 'background:linear-gradient(90deg,#ff0000,#ff8800,#ffff00,#00cc00,#0088ff,#8800ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent'
+      : `color:${RC[ri].cl}`;
     return `<div class="b-sel-card card-${c.rar}${lockClass}" data-id="${c.id}" ${onclick}>
-    <div class="b-sel-rar" style="color:${RC[ri].cl}">${c.rar}</div>
+    <div class="b-sel-rar" style="${bRarStyle}">${c.rar}</div>
     <div class="b-sel-name">${c.name}</div>
     <div class="b-sel-info">${streakText || 'ATK:'+c.atk.toLocaleString()}</div>${lockLabel}</div>`;
   }).join('');
@@ -1322,20 +1339,20 @@ if (S.lt) {
 
   function activateGoldenBonus() {
     const now = Date.now();
-    const lastUsed = S.goldenBonusAt || 0;
+    const lastUsed = S.ultraBonusAt || 0;
     const cooldown = 60 * 60 * 1000;
 
     if (now - lastUsed < cooldown) {
       const remaining = Math.ceil((cooldown - (now - lastUsed)) / 60000);
-      showKonamiNotification(`次の金パックまで ${remaining}分`, '#ff9f43');
+      showKonamiNotification(`次のウルトラパックまで ${remaining}分`, '#ff9f43');
       return;
     }
 
-    S.goldenBonusAt = now;
-    S.goldenBonus = true;
+    S.ultraBonusAt = now;
+    S.ultraBonus = true;
     save();
-    spawnP(40);
-    showKonamiNotification('🌟 金パック獲得！ 🌟', '#ffd700');
+    spawnP(60);
+    showKonamiNotification('🌈 ウルトラパック獲得！ 🌈', '#a78bfa');
   }
 
   function showKonamiNotification(text, color) {
