@@ -318,8 +318,18 @@ async function openPack() {
     if (packOImg) packOImg.src = isGold ? 'pix_gold.png' : 'pix.png';
 
     const articles = await fetchRandomArticles(5);
+    const usedNames = new Set(articles.map(a => a.name));
     const cards = articles.map((a, i) => articleToCard(a, (isGold && i === 4) ? 'SR' : null));
-    while (cards.length < 5) cards.push(articleToCard(generateFallbackArticles(1)[0]));
+    // 足りない場合はフォールバック（重複しないように）
+    if (cards.length < 5) {
+      const fb = generateFallbackArticles(10);
+      for (const a of fb) {
+        if (cards.length >= 5) break;
+        if (usedNames.has(a.name)) continue;
+        usedNames.add(a.name);
+        cards.push(articleToCard(a));
+      }
+    }
 
     cards.forEach(c => { c.isNew = true; S.col.unshift(c); });
     dedupeCollection();
@@ -645,10 +655,13 @@ async function startBattle() {
     }
   } catch(e) { console.warn('Enemy fetch failed:', e); }
 
-  while (enemies.length < enemyCount) {
-    const fallbacks = generateFallbackArticles(5);
+  const enemyNames = new Set(enemies.map(e => e.name));
+  if (enemies.length < enemyCount) {
+    const fallbacks = generateFallbackArticles(15);
     for (const fb of fallbacks) {
       if (enemies.length >= enemyCount) break;
+      if (enemyNames.has(fb.name)) continue;
+      enemyNames.add(fb.name);
       enemies.push(articleToCard(fb));
     }
   }
