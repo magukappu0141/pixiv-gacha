@@ -637,36 +637,24 @@ function estimateIllustCount(tagName, cardData) {
     return Math.floor(base * (0.8 + Math.random() * 0.4));
   }
 
-  // カードのATK/閲覧数/レア度から推定
+  // カードのレア度から投稿数を推定（レア度はイラスト投稿数で決まるので逆算）
   if (cardData) {
-    const ri = RO[cardData.rar] || 0;
-    const views = cardData.views || 1000;
-    const atk = cardData.atk || 500;
-
-    // レア度が高い＝記事が充実＝投稿数も多い傾向
-    const rarityMult = [1, 2, 5, 15, 40, 100, 250][ri] || 1;
-    const base = Math.floor(views * 0.05 + atk * 0.5) * rarityMult / 10;
-    // ランダム振れ ±30%
-    return Math.max(100, Math.floor(base * (0.7 + Math.random() * 0.6)));
+    const rar = cardData.rar || 'C';
+    const ranges = {
+      LR:  [200000, 500000],
+      UR:  [80000, 200000],
+      SSR: [30000, 80000],
+      SR:  [10000, 30000],
+      R:   [3000, 10000],
+      UC:  [500, 3000],
+      C:   [50, 500],
+    };
+    const [min, max] = ranges[rar] || [50, 500];
+    return Math.floor(min + Math.random() * (max - min));
   }
 
   // 何もない場合
   return 200 + Math.floor(Math.random() * 2000);
-}
-
-// バトル敵の数を自分のカードの強さに応じて決定
-function calcEnemyCount(playerCard) {
-  const ri = RO[playerCard.rar];
-  if (ri >= 5) return 3; // UR,LR → 3体
-  if (ri >= 3) return 2; // SR,SSR → 2体
-  return 1; // R以下 → 1体
-}
-
-// ポイントのベース倍率（敵が多いほどポイント増）
-function calcPointMultiplier(enemyCount) {
-  if (enemyCount >= 3) return 3;
-  if (enemyCount >= 2) return 2;
-  return 1;
 }
 
 async function startBattle() {
@@ -677,32 +665,37 @@ async function startBattle() {
   const btn = document.getElementById('battleBtn');
   if (btn) { btn.disabled = true; btn.textContent = '対戦相手を探しています...'; }
 
-  const enemyCount = calcEnemyCount(pc);
-
-  // 敵カードを取得
-  const enemies = [];
+  // 同じレア度の敵を1体取得
+  let ec = null;
   try {
     const owned = getOwnedNames();
     const r18val = S.r18only ? 2 : S.r18 ? 1 : 0;
-    const resp = await fetch(`${PROXY_BASE}/random?count=${enemyCount + 3}&r18=${r18val}`);
+    const resp = await fetch(`${PROXY_BASE}/random?count=5&r18=${r18val}`);
     if (resp.ok) {
       const data = await resp.json();
       const candidates = (data.articles || []).filter(a => !owned.has(a.name));
-      for (let i = 0; i < Math.min(enemyCount, candidates.length); i++) {
-        enemies.push(articleToCard(candidates[i]));
+      // 候補からカードを作って同じレア度のものを探す
+      for (const a of candidates) {
+        const card = articleToCard(a);
+        if (card.rar === pc.rar) { ec = card; break; }
+      }
+      // 同レア度がなければ一番近いレア度のものを使う
+      if (!ec && candidates.length > 0) {
+        const cards = candidates.map(a => articleToCard(a));
+        cards.sort((a, b) => Math.abs(RO[a.rar] - RO[pc.rar]) - Math.abs(RO[b.rar] - RO[pc.rar]));
+        ec = cards[0];
       }
     }
   } catch(e) { console.warn('Enemy fetch failed:', e); }
 
-  const enemyNames = new Set(enemies.map(e => e.name));
-  if (enemies.length < enemyCount) {
+  // フォールバック: 同じレア度で生成
+  if (!ec) {
     const fallbacks = generateFallbackArticles(15);
     for (const fb of fallbacks) {
-      if (enemies.length >= enemyCount) break;
-      if (enemyNames.has(fb.name)) continue;
-      enemyNames.add(fb.name);
-      enemies.push(articleToCard(fb));
+      const card = articleToCard(fb, pc.rar); // 同じレア度を保証
+      if (card.name !== pc.name) { ec = card; break; }
     }
+    if (!ec) ec = articleToCard(generateFallbackArticles(1)[0], pc.rar);
   }
 
   // バトルフィールド表示
@@ -717,12 +710,12 @@ async function startBattle() {
   document.getElementById('bfPlayerCard').innerHTML = `<img src="${getImgURL(pc.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${pc.name.substring(0,4)}</div>`;
   document.getElementById('bfPlayerName').textContent = `${pc.name} (${pc.rar})`;
 
-  const currentEnemy = enemies[0];
-  document.getElementById('bfEnemyCard').innerHTML = `<img src="${getImgURL(currentEnemy.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${currentEnemy.name.substring(0,4)}</div>`;
-  document.getElementById('bfEnemyName').textContent = `${currentEnemy.name} (${currentEnemy.rar})`;
+  // 敵表示
+  document.getElementById('bfEnemyCard').innerHTML = `<img src="${getImgURL(ec.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${ec.name.substring(0,4)}</div>`;
+  document.getElementById('bfEnemyName').textContent = `${ec.name} (${ec.rar})`;
 
   const enemyCountLabel = document.getElementById('bfEnemyCount');
-  if (enemyCountLabel) enemyCountLabel.textContent = enemies.length > 1 ? `全 ${enemies.length} 戦` : '';
+  if (enemyCountLabel) enemyCountLabel.textContent = '';
 
   document.getElementById('bfPlayerHP').style.width = '50%';
   document.getElementById('bfEnemyHP').style.width = '50%';
@@ -730,147 +723,91 @@ async function startBattle() {
   document.getElementById('bfEnemyHPText').textContent = '取得中...';
 
   const bfTurn = document.getElementById('bfTurn');
-  if (bfTurn) bfTurn.textContent = `第1戦 / ${enemies.length}戦`;
+  if (bfTurn) bfTurn.textContent = `${pc.rar} vs ${ec.rar}`;
 
-  addBattleLog(`⚔️ イラスト投稿数バトル！`, 'log-turn');
-  addBattleLog(`${pc.name} VS ${enemyCount > 1 ? `${enemyCount}体の敵` : currentEnemy.name}`, 'log-turn');
-  if (enemyCount > 1) addBattleLog(`💪 強いカードなので敵が${enemyCount}体！ ポイント${calcPointMultiplier(enemyCount)}倍！`, 'log-skill');
+  addBattleLog(`⚔️ ${pc.name} VS ${ec.name}`, 'log-turn');
   addBattleLog(`📊 イラスト投稿数を取得中...`, '');
 
-  // 自分のイラスト投稿数取得
-  const playerIC = await fetchIllustCount(pc.name, pc);
+  // 両者のイラスト投稿数を取得
+  const [playerIC, enemyIC] = await Promise.all([
+    fetchIllustCount(pc.name, pc),
+    fetchIllustCount(ec.name, ec),
+  ]);
+
   addBattleLog(`📊 ${pc.name}: ${playerIC.toLocaleString()} 件`, 'log-skill');
+  addBattleLog(`📊 ${ec.name}: ${enemyIC.toLocaleString()} 件`, 'log-atk');
 
-  battleState = {
-    player: pc,
-    enemies: enemies,
-    currentEnemyIdx: 0,
-    playerIC: playerIC,
-    enemyICs: [],
-    wins: 0,
-    losses: 0,
-    pointMultiplier: calcPointMultiplier(enemyCount),
-  };
-
-  await processBattleRound();
-}
-
-async function processBattleRound() {
-  const bs = battleState;
-  if (bs.currentEnemyIdx >= bs.enemies.length) {
-    finishBattle();
-    return;
-  }
-
-  const enemy = bs.enemies[bs.currentEnemyIdx];
-
-  // 敵カード表示を更新
-  document.getElementById('bfEnemyCard').innerHTML = `<img src="${getImgURL(enemy.name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" referrerpolicy="no-referrer"><div class="bf-card-fallback" style="display:none">${enemy.name.substring(0,4)}</div>`;
-  document.getElementById('bfEnemyName').textContent = `${enemy.name} (${enemy.rar})`;
-
-  const enemyCountLabel = document.getElementById('bfEnemyCount');
-  const remaining = bs.enemies.length - bs.currentEnemyIdx;
-  if (enemyCountLabel) enemyCountLabel.textContent = remaining > 0 ? `残り ${remaining} 戦` : '';
-
-  const bfTurn = document.getElementById('bfTurn');
-  if (bfTurn) bfTurn.textContent = `第${bs.currentEnemyIdx + 1}戦 / ${bs.enemies.length}戦`;
-
-  addBattleLog(`── 第${bs.currentEnemyIdx + 1}戦 ──`, 'log-turn');
-  addBattleLog(`VS ${enemy.name}`, 'log-turn');
-
-  // 敵のイラスト投稿数取得
-  const enemyIC = await fetchIllustCount(enemy.name, enemy);
-  bs.enemyICs.push(enemyIC);
-  addBattleLog(`📊 ${enemy.name}: ${enemyIC.toLocaleString()} 件`, 'log-atk');
-
-  // HPバー表示（投稿数ベース）
-  const maxIC = Math.max(bs.playerIC, enemyIC, 1);
-  const pPct = Math.max(5, (bs.playerIC / maxIC) * 100);
-  const ePct = Math.max(5, (enemyIC / maxIC) * 100);
-
-  document.getElementById('bfPlayerHP').style.width = pPct + '%';
-  document.getElementById('bfEnemyHP').style.width = ePct + '%';
-  document.getElementById('bfPlayerHPText').textContent = `イラスト: ${bs.playerIC.toLocaleString()} 件`;
+  // HPバー表示
+  const maxIC = Math.max(playerIC, enemyIC, 1);
+  document.getElementById('bfPlayerHP').style.width = Math.max(5, (playerIC / maxIC) * 100) + '%';
+  document.getElementById('bfEnemyHP').style.width = Math.max(5, (enemyIC / maxIC) * 100) + '%';
+  document.getElementById('bfPlayerHPText').textContent = `イラスト: ${playerIC.toLocaleString()} 件`;
   document.getElementById('bfEnemyHPText').textContent = `イラスト: ${enemyIC.toLocaleString()} 件`;
 
-  // 勝敗判定
+  battleState = { player: pc, enemy: ec, playerIC, enemyIC };
+
+  // 1.5秒待ってから結果表示
   await new Promise(r => setTimeout(r, 1500));
 
-  if (bs.playerIC > enemyIC) {
-    bs.wins++;
-    addBattleLog(`🎉 ${bs.player.name} の勝利！（${bs.playerIC.toLocaleString()} > ${enemyIC.toLocaleString()}）`, 'log-heal');
-    showDamagePopup('enemy', 'WIN', 'skill-dmg');
-    const targetEl = document.querySelector('.bf-enemy');
-    if (targetEl) { targetEl.classList.add('shake'); setTimeout(() => targetEl.classList.remove('shake'), 400); }
-  } else if (bs.playerIC < enemyIC) {
-    bs.losses++;
-    addBattleLog(`💀 ${enemy.name} の勝利...（${enemyIC.toLocaleString()} > ${bs.playerIC.toLocaleString()}）`, 'log-atk');
-    showDamagePopup('player', 'LOSE', 'atk-dmg');
-    const targetEl = document.querySelector('.bf-player');
-    if (targetEl) { targetEl.classList.add('shake'); setTimeout(() => targetEl.classList.remove('shake'), 400); }
-  } else {
-    addBattleLog(`🤝 引き分け！（${bs.playerIC.toLocaleString()} = ${enemyIC.toLocaleString()}）`, '');
-  }
+  // 勝敗判定
+  const won = playerIC > enemyIC;
+  const draw = playerIC === enemyIC;
+  const cardName = pc.name;
 
-  bs.currentEnemyIdx++;
-  await new Promise(r => setTimeout(r, 1200));
-
-  if (bs.currentEnemyIdx < bs.enemies.length) {
-    await processBattleRound();
-  } else {
-    finishBattle();
-  }
-}
-
-function finishBattle() {
-  const bs = battleState;
   const resultDiv = document.getElementById('bfResult');
   const resultText = document.getElementById('bfResultText');
   const resultDetail = document.getElementById('bfResultDetail');
   resultDiv.style.display = 'block';
 
-  const won = bs.wins > bs.losses;
-  const draw = bs.wins === bs.losses;
-  const cardName = bs.player.name;
-
   let detail = '';
   let pointsChange = 0;
 
   if (won) {
-    pointsChange = 10 * bs.pointMultiplier;
+    pointsChange = 10;
     resultText.textContent = '🎉 WIN!'; resultText.className = 'bf-result-text win';
     S.br.w++; spawnP(30);
     S.pts += pointsChange;
 
-    // 連勝トラッキング
     S.cardWinStreaks[cardName] = (S.cardWinStreaks[cardName] || 0) + 1;
     const streak = S.cardWinStreaks[cardName];
 
-    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で勝利！</div>`;
+    addBattleLog(`🎉 ${pc.name} が ${ec.name} に勝ちました！`, 'log-heal');
+    showDamagePopup('enemy', 'WIN', 'skill-dmg');
+    const targetEl = document.querySelector('.bf-enemy');
+    if (targetEl) { targetEl.classList.add('shake'); setTimeout(() => targetEl.classList.remove('shake'), 400); }
+
+    detail += `<div style="font-size:1.1rem;color:var(--txt);margin:12px 0;font-weight:700">${pc.name} が ${ec.name} に勝ちました！</div>`;
+    detail += `<div style="font-size:.85rem;color:var(--dim);margin:4px 0">${playerIC.toLocaleString()} 件 > ${enemyIC.toLocaleString()} 件</div>`;
     detail += `<div class="b-gain">+ ${pointsChange} ポイント獲得！</div>`;
 
     if (streak >= 3) {
-      // 3連勝でロック（30分）
       const LOCK_DURATION = 30 * 60 * 1000;
       S.cardLocks[cardName] = Date.now() + LOCK_DURATION;
       S.cardWinStreaks[cardName] = 0;
-      detail += `<div style="margin-top:8px;padding:8px 14px;border-radius:8px;background:rgba(255,71,87,.15);color:var(--red);font-size:.82rem">🔒 ${cardName} は3連勝したため30分間バトル使用不可になりました</div>`;
-    } else {
-      detail += `<div style="margin-top:6px;font-size:.78rem;color:var(--orange)">🔥 ${cardName}: ${streak}連勝中${streak === 2 ? '（あと1勝でロック）' : ''}</div>`;
+      detail += `<div style="margin-top:8px;padding:8px 14px;border-radius:8px;background:rgba(255,71,87,.15);color:var(--red);font-size:.82rem">🔒 ${cardName} は3連勝したため30分間バトル使用不可</div>`;
+    } else if (streak >= 2) {
+      detail += `<div style="margin-top:6px;font-size:.78rem;color:var(--orange)">🔥 ${cardName}: ${streak}連勝中（あと1勝でロック）</div>`;
     }
   } else if (draw) {
     resultText.textContent = '🤝 DRAW'; resultText.className = 'bf-result-text'; resultText.style.color = 'var(--dim)';
     S.br.d = (S.br.d || 0) + 1;
-    detail += `<div style="font-size:.95rem;color:var(--dim);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で引き分け</div>`;
-    // 引き分けは連勝リセットしない
+    addBattleLog(`🤝 ${pc.name} と ${ec.name} は引き分け！`, '');
+    detail += `<div style="font-size:1.1rem;color:var(--dim);margin:12px 0;font-weight:700">${pc.name} と ${ec.name} は引き分け</div>`;
+    detail += `<div style="font-size:.85rem;color:var(--dim);margin:4px 0">${playerIC.toLocaleString()} 件 = ${enemyIC.toLocaleString()} 件</div>`;
   } else {
     pointsChange = -5;
     resultText.textContent = '💀 LOSE...'; resultText.className = 'bf-result-text lose';
     S.br.l++;
     S.pts = Math.max(0, S.pts + pointsChange);
-    // 敗北で連勝リセット
     S.cardWinStreaks[cardName] = 0;
-    detail += `<div style="font-size:.95rem;color:var(--txt);margin:8px 0">${bs.wins}勝 ${bs.losses}敗 で敗北...</div>`;
+
+    addBattleLog(`💀 ${pc.name} が ${ec.name} に負けました...`, 'log-atk');
+    showDamagePopup('player', 'LOSE', 'atk-dmg');
+    const targetEl = document.querySelector('.bf-player');
+    if (targetEl) { targetEl.classList.add('shake'); setTimeout(() => targetEl.classList.remove('shake'), 400); }
+
+    detail += `<div style="font-size:1.1rem;color:var(--txt);margin:12px 0;font-weight:700">${pc.name} が ${ec.name} に負けました...</div>`;
+    detail += `<div style="font-size:.85rem;color:var(--dim);margin:4px 0">${playerIC.toLocaleString()} 件 < ${enemyIC.toLocaleString()} 件</div>`;
     detail += `<div class="b-lose-card">${pointsChange} ポイント...</div>`;
   }
   detail += `<div style="margin-top:8px;font-size:.82rem">所持ポイント: ${S.pts} pt</div>`;
