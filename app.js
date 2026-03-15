@@ -896,27 +896,28 @@ async function openExchange() {
 let exSugDebounceTimer = null;
 let exSugHighlight = -1;
 let exSugFetching = false;
+let exSugRemoteResults = []; // プロキシから返ってきた候補
 
 // 所持カードのリンク先を初期キャッシュとして読み込む
 function loadExSugCache() {
-  // 所持カード名をまず追加
   for (const c of S.col) exSugCache.add(c.name);
 }
 
-// プロキシから記事のリンク先を取得してキャッシュに追加
+// プロキシの /suggest エンドポイントから候補を取得
 async function fetchSuggestionsFromProxy(query) {
   if (exSugFetching) return;
   if (query.length < 2) return;
 
   exSugFetching = true;
   try {
-    // 入力テキストをそのまま記事名として/a/を取得→リンク先を候補にする
-    const resp = await fetch(`${PROXY_BASE}/article?name=${encodeURIComponent(query)}`);
+    const resp = await fetch(`${PROXY_BASE}/suggest?q=${encodeURIComponent(query)}`);
     if (resp.ok) {
       const data = await resp.json();
-      if (data.exists && data.name) {
-        exSugCache.add(data.name);
-      }
+      exSugRemoteResults = (data.suggestions || []).map(s => s.name).filter(Boolean);
+      // キャッシュにも追加
+      for (const name of exSugRemoteResults) exSugCache.add(name);
+      // 候補を再描画
+      showSuggestions(query);
     }
   } catch(e) {}
   exSugFetching = false;
@@ -933,51 +934,77 @@ function onExInputChange() {
     return;
   }
 
-  // デバウンスでプロキシにも問い合わせ
-  clearTimeout(exSugDebounceTimer);
-  exSugDebounceTimer = setTimeout(() => fetchSuggestionsFromProxy(query), 500);
-
   // ローカルキャッシュから即座に候補を表示
   showSuggestions(query);
+
+  // デバウンスでプロキシにも問い合わせ（ひらがな入力対応）
+  clearTimeout(exSugDebounceTimer);
+  exSugDebounceTimer = setTimeout(() => fetchSuggestionsFromProxy(query), 400);
 }
 
 function showSuggestions(query) {
   const sugEl = document.getElementById('exSuggestions');
   const q = query.toLowerCase();
+  const qKata = hiraganaToKatakana(q);
 
-  // キャッシュ内で前方一致・部分一致する候補を抽出
   const owned = getOwnedNames();
   const matches = [];
+  const seen = new Set();
 
-  for (const name of exSugCache) {
-    const nameLower = name.toLowerCase();
-    if (nameLower.includes(q) && name !== query) {
-      const isOwned = owned.has(name);
-      const isPrefix = nameLower.startsWith(q);
-      matches.push({ name, isOwned, isPrefix });
-    }
-    if (matches.length >= 15) break;
+  // 1. プロキシから返ってきたリモート候補（最優先）
+  for (const name of exSugRemoteResults) {
+    if (seen.has(name) || name === query) continue;
+    seen.add(name);
+    matches.push({ name, isOwned: owned.has(name), priority: 0 });
   }
 
-  // 前方一致を優先、次に部分一致。所持済みは後ろに
+  // 2. ローカルキャッシュから部分一致
+  for (const name of exSugCache) {
+    if (seen.has(name) || name === query) continue;
+    const nameLower = name.toLowerCase();
+    const nameKata = hiraganaToKatakana(nameLower);
+    // ひらがな/カタカナ/漢字の部分一致
+    if (nameLower.includes(q) || nameKata.includes(qKata) || nameLower.includes(qKata)) {
+      seen.add(name);
+      const isPrefix = nameLower.startsWith(q) || nameKata.startsWith(qKata);
+      matches.push({ name, isOwned: owned.has(name), priority: isPrefix ? 1 : 2 });
+    }
+    if (matches.length >= 20) break;
+  }
+
+  // ソート: リモート候補 → 前方一致 → 部分一致。所持済みは後ろ
   matches.sort((a, b) => {
-    if (a.isPrefix !== b.isPrefix) return a.isPrefix ? -1 : 1;
+    if (a.priority !== b.priority) return a.priority - b.priority;
     if (a.isOwned !== b.isOwned) return a.isOwned ? 1 : -1;
     return a.name.localeCompare(b.name, 'ja');
   });
 
-  if (matches.length === 0) {
-    hideSuggestions();
+  const display = matches.slice(0, 15);
+
+  if (display.length === 0) {
+    // 候補がない場合「検索中...」を表示（プロキシ待ち）
+    if (exSugFetching && query.length >= 2) {
+      sugEl.innerHTML = '<div class="ex-sug-item" style="color:var(--dim);cursor:default">🔍 検索中...</div>';
+      sugEl.className = 'ex-suggestions active';
+    } else {
+      hideSuggestions();
+    }
     return;
   }
 
-  sugEl.innerHTML = matches.map((m, i) => {
+  sugEl.innerHTML = display.map((m, i) => {
     const ownedBadge = m.isOwned ? '<span class="sug-owned">所持</span>' : '';
-    return `<div class="ex-sug-item" data-idx="${i}" onmousedown="selectSuggestion('${m.name.replace(/'/g, "\\'")}')" onmouseenter="exSugHighlight=${i};highlightSug()">
+    const escapedName = m.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    return `<div class="ex-sug-item" data-idx="${i}" onmousedown="selectSuggestion('${escapedName}')" onmouseenter="exSugHighlight=${i};highlightSug()">
       <span class="sug-name">${m.name}</span>${ownedBadge}
     </div>`;
   }).join('');
   sugEl.className = 'ex-suggestions active';
+}
+
+// ひらがな→カタカナ変換
+function hiraganaToKatakana(str) {
+  return str.replace(/[\u3040-\u309F]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 }
 
 function hideSuggestions() {
