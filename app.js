@@ -546,16 +546,63 @@ function selectBattleCard(id, el) {
   document.getElementById('battleBtn').disabled = false;
 }
 
-// イラスト投稿数をプロキシ経由で取得
-async function fetchIllustCount(tagName) {
+// イラスト投稿数をプロキシ経由で取得（0の場合はカードデータから推定）
+async function fetchIllustCount(tagName, cardData) {
   try {
     const resp = await fetch(`${PROXY_BASE}/illustcount?tag=${encodeURIComponent(tagName)}`);
     if (resp.ok) {
       const data = await resp.json();
-      return data.count || 0;
+      if (data.count > 0) return data.count;
     }
   } catch(e) { console.warn('illustcount fetch failed:', e); }
-  return 0;
+
+  // プロキシで取れなかった場合、カードデータから推定
+  return estimateIllustCount(tagName, cardData);
+}
+
+// カードデータ/既知タグからイラスト投稿数を推定
+function estimateIllustCount(tagName, cardData) {
+  // よく知られたタグの推定値
+  const KNOWN_TAGS = {
+    "東方Project":400000,"初音ミク":500000,"ポケットモンスター":300000,"Fate/Grand Order":250000,
+    "原神":300000,"艦これ":300000,"鬼滅の刃":200000,"ブルーアーカイブ":200000,"刀剣乱舞":200000,
+    "NARUTO":180000,"ウマ娘プリティーダービー":180000,"呪術廻戦":150000,"ワンピース":150000,
+    "博麗霊夢":150000,"ドラゴンボール":120000,"ホロライブ":120000,"進撃の巨人":100000,
+    "魔法少女まどか☆マギカ":100000,"ジョジョの奇妙な冒険":100000,"セーラームーン":80000,
+    "チェンソーマン":80000,"五条悟":80000,"SPY×FAMILY":60000,"ドラえもん":60000,
+    "推しの子":50000,"HUNTER×HUNTER":40000,"葬送のフリーレン":30000,
+    "UNDERTALE":25000,"NieR:Automata":30000,"ワンパンマン":15000,
+    "怪獣8号":12000,"薬屋のひとりごと":20000,"ブルーロック":35000,
+    "新世紀エヴァンゲリオン":90000,"プリキュア":80000,"ラブライブ!":120000,
+    "銀魂":50000,"涼宮ハルヒの憂鬱":35000,"ぼっち・ざ・ろっく!":40000,
+    "Re:ゼロから始める異世界生活":35000,"ソードアート・オンライン":50000,
+    "マインクラフト":20000,"ペルソナ5":25000,"ファイナルファンタジー":40000,
+    "星のカービィ":30000,"大乱闘スマッシュブラザーズ":15000,
+    "にじさんじ":80000,"ゴールデンカムイ":30000,"キングダム":8000,
+    "リコリス・リコイル":20000,"ダンジョン飯":15000,
+  };
+
+  if (KNOWN_TAGS[tagName]) {
+    // 既知タグ: ±20%のランダム振れ
+    const base = KNOWN_TAGS[tagName];
+    return Math.floor(base * (0.8 + Math.random() * 0.4));
+  }
+
+  // カードのATK/閲覧数/レア度から推定
+  if (cardData) {
+    const ri = RO[cardData.rar] || 0;
+    const views = cardData.views || 1000;
+    const atk = cardData.atk || 500;
+
+    // レア度が高い＝記事が充実＝投稿数も多い傾向
+    const rarityMult = [1, 2, 5, 15, 40, 100, 250][ri] || 1;
+    const base = Math.floor(views * 0.05 + atk * 0.5) * rarityMult / 10;
+    // ランダム振れ ±30%
+    return Math.max(100, Math.floor(base * (0.7 + Math.random() * 0.6)));
+  }
+
+  // 何もない場合
+  return 200 + Math.floor(Math.random() * 2000);
 }
 
 // バトル敵の数を自分のカードの強さに応じて決定
@@ -639,7 +686,7 @@ async function startBattle() {
   addBattleLog(`📊 イラスト投稿数を取得中...`, '');
 
   // 自分のイラスト投稿数取得
-  const playerIC = await fetchIllustCount(pc.name);
+  const playerIC = await fetchIllustCount(pc.name, pc);
   addBattleLog(`📊 ${pc.name}: ${playerIC.toLocaleString()} 件`, 'log-skill');
 
   battleState = {
@@ -680,7 +727,7 @@ async function processBattleRound() {
   addBattleLog(`VS ${enemy.name}`, 'log-turn');
 
   // 敵のイラスト投稿数取得
-  const enemyIC = await fetchIllustCount(enemy.name);
+  const enemyIC = await fetchIllustCount(enemy.name, enemy);
   bs.enemyICs.push(enemyIC);
   addBattleLog(`📊 ${enemy.name}: ${enemyIC.toLocaleString()} 件`, 'log-atk');
 
@@ -820,6 +867,15 @@ async function previewExchange() {
     if (!resp.ok) throw new Error('Fetch failed');
     const article = await resp.json();
     if (!article.name) throw new Error('Article not found');
+
+    // 記事が実際に存在するかチェック（閲覧数0 & 説明文なし = 存在しない可能性大）
+    if ((!article.desc || article.desc.length < 10) && (!article.views || article.views === 0) && (!article.contentLength || article.contentLength < 500)) {
+      status.textContent = '❌ この記事は存在しないか、内容が不十分です';
+      status.style.color = 'var(--red)';
+      preview.innerHTML = '';
+      confirmBtn.style.display = 'none';
+      return;
+    }
 
     const ic = await fetchIllustCount(tagName);
     article.illustCount = ic;
