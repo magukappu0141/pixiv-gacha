@@ -30,11 +30,12 @@ const FL = [
   "二次創作の可能性を無限に広げる、魔法の言葉。",
 ];
 
-let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, ultraBonus:false, ultraBonusAt:0, pts:0, cardLocks:{}, cardWinStreaks:{} };
+let S = { col:[], pc:0, pk:10, mx:10, lt:Date.now(), br:{w:0,l:0,d:0}, r18:false, r18only:false, ultraBonus:false, ultraBonusAt:0, legendBonus:false, legendBonusAt:0, pts:0, cardLocks:{}, cardWinStreaks:{} };
 try { const v = localStorage.getItem('pxg5'); if(v) { const parsed = JSON.parse(v); S = {...S, ...parsed}; if (typeof S.pts !== 'number') S.pts = 0; if (!S.cardLocks) S.cardLocks = {}; if (!S.cardWinStreaks) S.cardWinStreaks = {};
-  // 旧goldenBonusからの移行
   if (parsed.goldenBonus) { S.ultraBonus = true; delete S.goldenBonus; }
   if (parsed.goldenBonusAt) { S.ultraBonusAt = parsed.goldenBonusAt; delete S.goldenBonusAt; }
+  if (typeof S.legendBonus === 'undefined') S.legendBonus = false;
+  if (typeof S.legendBonusAt === 'undefined') S.legendBonusAt = 0;
 } } catch(e) {}
 
 // 期限切れのロックを掃除
@@ -341,17 +342,19 @@ async function openPack() {
 
   try {
     S.pk--; S.pc++;
-    const isUltra = S.ultraBonus === true;
-    const isGold = !isUltra && (S.pc % 10 === 0);
-    if (S.ultraBonus) { S.ultraBonus = false; save(); }
+    const isLegend = S.legendBonus === true;
+    const isUltra = !isLegend && S.ultraBonus === true;
+    const isGold = !isLegend && !isUltra && (S.pc % 10 === 0);
+    if (S.legendBonus) { S.legendBonus = false; save(); }
+    if (S.ultraBonus && isUltra) { S.ultraBonus = false; save(); }
     const packOImg = document.getElementById('packOImg');
-    if (packOImg) packOImg.src = isUltra ? 'pix_ultra.png' : isGold ? 'pix_gold.png' : 'pix.png';
+    if (packOImg) packOImg.src = isLegend ? 'pix_legend.png' : isUltra ? 'pix_ultra.png' : isGold ? 'pix_gold.png' : 'pix.png';
 
     const articles = await fetchRandomArticles(5);
     const usedNames = new Set(articles.map(a => a.name));
-    // ウルトラパック: 3枚UR以上確定 / 金パック: 最後の1枚SR以上確定
-    const minRarity = isUltra ? 'UR' : (isGold ? 'SR' : null);
+    // レジェンドパック: 全5枚LR確定 / ウルトラパック: 3枚UR以上確定 / 金パック: 最後の1枚SR以上確定
     const cards = articles.map((a, i) => {
+      if (isLegend) return articleToCard(a, 'LR');
       if (isUltra && i < 3) return articleToCard(a, 'UR');
       if (isGold && i === 4) return articleToCard(a, 'SR');
       return articleToCard(a);
@@ -487,11 +490,29 @@ function shareRes() {
 function updPk() {
   document.getElementById('pN').textContent = S.pk;
   const ng = 10 - S.pc % 10;
+  const hasLegend = S.legendBonus === true;
   const hasUltra = S.ultraBonus === true;
-  document.getElementById('pG').textContent = hasUltra ? '🌈 ウルトラパック準備完了！' : ng === 10 ? '金パックまであと10回' : `金パックまであと${ng}回`;
+  const nextGold = ng === 1;
+
+  // テキスト: レジェンド > ウルトラ > 金パック > 通常
+  let statusText, imgSrc;
+  if (hasLegend) {
+    statusText = '🌈 レジェンドパック準備完了！';
+    imgSrc = 'pix_legend.png';
+  } else if (hasUltra) {
+    statusText = '🔴 ウルトラパック準備完了！';
+    imgSrc = 'pix_ultra.png';
+  } else if (nextGold) {
+    statusText = '🌟 次は金パック！';
+    imgSrc = 'pix_gold.png';
+  } else {
+    statusText = `金パックまであと${ng === 10 ? 10 : ng}回`;
+    imgSrc = 'pix.png';
+  }
+
+  document.getElementById('pG').textContent = statusText;
   const pkImg = document.querySelector('.pk-img');
-  if (pkImg) pkImg.src = hasUltra ? 'pix_ultra.png' : (ng === 1) ? 'pix_gold.png' : 'pix.png';
-  // ポイント表示更新
+  if (pkImg) pkImg.src = imgSrc;
   const ptsEl = document.getElementById('ptsDisplay');
   if (ptsEl) ptsEl.textContent = `${S.pts} pt`;
 }
@@ -1402,8 +1423,9 @@ setTimeout(autoFixZeroIllustCounts, 2000);
     S.ultraBonusAt = now;
     S.ultraBonus = true;
     save();
+    updPk(); // パック画像を即更新
     spawnP(60);
-    showKonamiNotification('🌈 ウルトラパック獲得！ 🌈', '#a78bfa');
+    showKonamiNotification('🔴 ウルトラパック獲得！ 🔴', '#ff4757');
   }
 
   function showKonamiNotification(text, color) {
@@ -1417,4 +1439,55 @@ setTimeout(autoFixZeroIllustCounts, 2000);
   const style = document.createElement('style');
   style.textContent = `@keyframes konamiPop{0%{opacity:0;transform:translate(-50%,-50%) scale(.3)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.2)}40%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-55%) scale(1.1)}}`;
   document.head.appendChild(style);
+})();
+
+// ============================================================
+// purinn1 シークレットコマンド（レジェンドパック / 1日1回）
+// ============================================================
+(function(){
+  const SECRET = 'purinn1';
+  let secretBuf = '';
+
+  document.addEventListener('keydown', function(e) {
+    // テキスト入力中は無視
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    // ガチャ画面でのみ
+    if (document.getElementById('cardViewer').style.display !== 'none') return;
+
+    secretBuf += e.key.toLowerCase();
+    if (secretBuf.length > SECRET.length) secretBuf = secretBuf.slice(-SECRET.length);
+
+    if (secretBuf === SECRET) {
+      secretBuf = '';
+      activateLegendBonus();
+    }
+  });
+
+  function activateLegendBonus() {
+    const now = Date.now();
+    const lastUsed = S.legendBonusAt || 0;
+    const cooldown = 24 * 60 * 60 * 1000; // 1日
+
+    if (now - lastUsed < cooldown) {
+      const remainH = Math.ceil((cooldown - (now - lastUsed)) / 3600000);
+      showLegendNotification(`次のレジェンドパックまで ${remainH}時間`, '#ff9f43');
+      return;
+    }
+
+    S.legendBonusAt = now;
+    S.legendBonus = true;
+    save();
+    updPk(); // パック画像を即更新
+    spawnP(80);
+    showLegendNotification('🌈✨ レジェンドパック獲得！ ✨🌈', 'rainbow');
+  }
+
+  function showLegendNotification(text, color) {
+    const notif = document.createElement('div');
+    notif.textContent = text;
+    const isRainbow = color === 'rainbow';
+    notif.style.cssText = `position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.8rem;font-weight:900;z-index:1000;pointer-events:none;animation:konamiPop 2.5s ease forwards;white-space:nowrap;${isRainbow ? 'background:linear-gradient(90deg,#ff0000,#ff8800,#ffff00,#00ff00,#0088ff,#8800ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 20px rgba(255,100,200,.8));' : `color:${color};text-shadow:0 0 30px ${color};`}`;
+    document.body.appendChild(notif);
+    setTimeout(() => notif.remove(), 2500);
+  }
 })();
