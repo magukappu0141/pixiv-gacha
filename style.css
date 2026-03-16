@@ -203,8 +203,11 @@ nav{position:sticky;top:0;z-index:100;background:rgba(14,14,14,.96);backdrop-fil
 @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
 
 /* ===== EXCHANGE MODAL ===== */
-.ex-modal{background:var(--s1);border-radius:16px;max-width:420px;width:100%;padding:24px 20px;position:relative;margin:40px auto;animation:dpop .35s cubic-bezier(.34,1.56,.64,1)}
-.ex-modal h3{font-size:1.1rem;color:var(--goldb);margin-bottom:12px}
+.ex-modal{background:var(--s1);border-radius:16px;max-width:420px;width:100%;max-height:90vh;display:flex;flex-direction:column;position:relative;margin:20px auto;animation:dpop .35s cubic-bezier(.34,1.56,.64,1)}
+.ex-modal-header{display:flex;justify-content:space-between;align-items:center;padding:18px 20px 0;flex-shrink:0}
+.ex-modal-header h3{font-size:1.1rem;color:var(--goldb);margin:0}
+.ex-modal-close{background:none;border:none;color:var(--dim);font-size:1.5rem;cursor:pointer;padding:4px 8px;flex-shrink:0}
+.ex-modal-body{padding:12px 20px 24px;overflow-y:auto;flex:1}
 .ex-pts{font-size:.88rem;color:var(--accent);font-weight:700;margin-bottom:12px}
 .ex-cost-table{display:flex;flex-wrap:wrap;gap:6px 12px;margin-bottom:16px;font-size:.75rem;color:var(--dim)}
 .ex-cost-row{display:flex;align-items:center;gap:4px}
@@ -289,5 +292,5 @@ nav{position:sticky;top:0;z-index:100;background:rgba(14,14,14,.96);backdrop-fil
   .cv-side-left{left:-24px}.cv-side-right{right:-24px}
   .z-grid{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
   .rare-text{font-size:2.5rem}
-  .ex-modal{margin:20px 10px}
+  .ex-modal{margin:10px;max-height:95vh}
 }

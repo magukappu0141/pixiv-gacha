@@ -215,28 +215,32 @@
 <!-- カード交換モーダル -->
 <div class="do" id="exchangeO" onclick="if(event.target===this)closeExchange()">
   <div class="ex-modal" onclick="event.stopPropagation()">
-    <button class="hx" onclick="closeExchange()">✕</button>
-    <h3>🔄 カード交換</h3>
-    <div class="ex-pts" id="exPts">所持ポイント: 0 pt</div>
-    <div class="ex-cost-table">
-      <div class="ex-cost-row"><span class="rc-c">C</span> 5pt</div>
-      <div class="ex-cost-row"><span class="rc-uc">UC</span> 15pt</div>
-      <div class="ex-cost-row"><span class="rc-r">R</span> 30pt</div>
-      <div class="ex-cost-row"><span class="rc-sr">SR</span> 60pt</div>
-      <div class="ex-cost-row"><span class="rc-ssr">SSR</span> 120pt</div>
-      <div class="ex-cost-row"><span class="rc-ur">UR</span> 250pt</div>
-      <div class="ex-cost-row"><span class="rc-lr">LR</span> 500pt</div>
+    <div class="ex-modal-header">
+      <h3>🔄 カード交換</h3>
+      <button class="ex-modal-close" onclick="closeExchange()">✕</button>
     </div>
-    <div class="ex-input-row">
-      <div class="ex-autocomplete-wrap">
-        <input type="text" id="exUrl" placeholder="百科事典URL or 記事名" class="ex-input" autocomplete="off" oninput="onExInputChange()" onkeydown="onExKeydown(event)">
-        <div class="ex-suggestions" id="exSuggestions"></div>
+    <div class="ex-modal-body">
+      <div class="ex-pts" id="exPts">所持ポイント: 0 pt</div>
+      <div class="ex-cost-table">
+        <div class="ex-cost-row"><span class="rc-c">C</span> 5pt</div>
+        <div class="ex-cost-row"><span class="rc-uc">UC</span> 15pt</div>
+        <div class="ex-cost-row"><span class="rc-r">R</span> 30pt</div>
+        <div class="ex-cost-row"><span class="rc-sr">SR</span> 60pt</div>
+        <div class="ex-cost-row"><span class="rc-ssr">SSR</span> 120pt</div>
+        <div class="ex-cost-row"><span class="rc-ur">UR</span> 250pt</div>
+        <div class="ex-cost-row"><span class="rc-lr">LR</span> 500pt</div>
       </div>
-      <button class="ex-search-btn" onclick="previewExchange()">検索</button>
+      <div class="ex-input-row">
+        <div class="ex-autocomplete-wrap">
+          <input type="text" id="exUrl" placeholder="百科事典URL or 記事名" class="ex-input" autocomplete="off" oninput="onExInputChange()" onkeydown="onExKeydown(event)">
+          <div class="ex-suggestions" id="exSuggestions"></div>
+        </div>
+        <button class="ex-search-btn" onclick="previewExchange()">検索</button>
+      </div>
+      <div class="ex-status" id="exStatus"></div>
+      <div class="ex-preview" id="exPreview"></div>
+      <button class="btn-bt ex-confirm" id="exConfirmBtn" style="display:none">交換する</button>
     </div>
-    <div class="ex-status" id="exStatus"></div>
-    <div class="ex-preview" id="exPreview"></div>
-    <button class="btn-bt ex-confirm" id="exConfirmBtn" style="display:none">交換する</button>
   </div>
 </div>
 
@@ -286,6 +290,18 @@
 
 <!-- 効果音 -->
 <audio id="sfxFlip" src="flip.mp3" preload="auto"></audio>
+
+<!-- SEO: クローラー向けコンテンツ -->
+<noscript>
+  <h1>ピクシブ百科事典ガチャ</h1>
+  <p>ピクシブ百科事典の記事がランダムでカードになるガチャゲーム。pixivのイラスト投稿数でレア度が決まります。</p>
+  <h2>遊び方</h2>
+  <p>パックを開封して5枚のカードを入手。レア度はC、UC、R、SR、SSR、UR、LRの7段階。pixivのイラスト投稿数が多いほど高レア度のカードが手に入ります。</p>
+  <h2>バトル</h2>
+  <p>手持ちのカードでイラスト投稿数バトル！同じレア度の相手と1対1で対決し、pixivのイラスト投稿数が多い方が勝利。ポイントを貯めてカード交換もできます。</p>
+  <h2>カード交換</h2>
+  <p>バトルで獲得したポイントを使って、好きなピクシブ百科事典の記事をカードとして入手できます。</p>
+</noscript>
 
 <script src="app.js"></script>
 </body>
