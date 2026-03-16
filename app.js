@@ -189,11 +189,10 @@ function generateFallbackArticles(count) {
 // ============================================================
 // CARD CREATION
 // ============================================================
-function articleToCard(article, guaranteedMinRarity) {
+function articleToCard(article) {
   let ic = article.illustCount || 0;
   let rarity = determineRarity(article.views, article.contentLength, ic);
-  if (guaranteedMinRarity && RO[rarity] < RO[guaranteedMinRarity]) rarity = guaranteedMinRarity;
-  // illustCountが0のままだとカード表示が0件になるので、レア度から推定
+  // illustCountが0の場合、レア度から推定値を入れる
   if (ic <= 0) {
     const ranges = { LR:[200000,500000], UR:[80000,200000], SSR:[30000,80000], SR:[10000,30000], R:[3000,10000], UC:[500,3000], C:[50,500] };
     const [min, max] = ranges[rarity] || [50, 500];
@@ -345,21 +344,36 @@ async function openPack() {
     const isLegend = S.legendBonus === true;
     const isUltra = !isLegend && S.ultraBonus === true;
     const isGold = !isLegend && !isUltra && (S.pc % 10 === 0);
-    if (S.legendBonus) { S.legendBonus = false; save(); }
-    if (S.ultraBonus && isUltra) { S.ultraBonus = false; save(); }
+    if (S.legendBonus) { S.legendBonus = false; }
+    if (S.ultraBonus && isUltra) { S.ultraBonus = false; }
+    save();
     const packOImg = document.getElementById('packOImg');
     if (packOImg) packOImg.src = isLegend ? 'pix_legend.png' : isUltra ? 'pix_ultra.png' : isGold ? 'pix_gold.png' : 'pix.png';
 
-    const articles = await fetchRandomArticles(5);
-    const usedNames = new Set(articles.map(a => a.name));
-    // レジェンドパック: 全5枚LR確定 / ウルトラパック: 3枚UR以上確定 / 金パック: 最後の1枚SR以上確定
-    const cards = articles.map((a, i) => {
-      if (isLegend) return articleToCard(a, 'LR');
-      if (isUltra && i < 3) return articleToCard(a, 'UR');
-      if (isGold && i === 4) return articleToCard(a, 'SR');
-      return articleToCard(a);
-    });
-    // 足りない場合はフォールバック（重複しないように）
+    let cards;
+    if (isLegend) {
+      // レジェンドパック: LRになるカードを5枚探す
+      cards = await fetchCardsOfMinRarity('LR', 5);
+    } else if (isUltra) {
+      // ウルトラパック: URになるカード3枚 + 通常2枚
+      const urCards = await fetchCardsOfMinRarity('UR', 3);
+      const normalArticles = await fetchRandomArticles(2);
+      const normalCards = normalArticles.map(a => articleToCard(a));
+      cards = [...urCards, ...normalCards];
+    } else if (isGold) {
+      // 金パック: SRになるカード1枚 + 通常4枚
+      const srCards = await fetchCardsOfMinRarity('SR', 1);
+      const normalArticles = await fetchRandomArticles(4);
+      const normalCards = normalArticles.map(a => articleToCard(a));
+      cards = [...normalCards, ...srCards];
+    } else {
+      // 通常パック
+      const articles = await fetchRandomArticles(5);
+      cards = articles.map(a => articleToCard(a));
+    }
+
+    // 足りない場合はフォールバック
+    const usedNames = new Set(cards.map(c => c.name));
     if (cards.length < 5) {
       const fb = generateFallbackArticles(10);
       for (const a of fb) {
@@ -746,6 +760,91 @@ async function autoFixZeroIllustCounts() {
   }
 }
 
+// 指定レア度以上のカードをcount枚探して返す
+// 実際のイラスト投稿数を取得してレア度が条件を満たすものだけ返す
+async function fetchCardsOfMinRarity(minRarity, count) {
+  const minIllust = RC[RO[minRarity]].minIllust; // レア度に必要な最低イラスト数
+  const found = [];
+  const usedNames = new Set();
+  const owned = getOwnedNames();
+
+  // まず既知の高投稿数タグから候補を探す（KNOWN_TAGSから）
+  const knownEntries = Object.entries(estimateIllustCount.KNOWN_TAGS || {})
+    .filter(([name, ic]) => ic >= minIllust && !owned.has(name))
+    .sort(() => Math.random() - 0.5);
+
+  for (const [name, ic] of knownEntries) {
+    if (found.length >= count) break;
+    if (usedNames.has(name)) continue;
+    usedNames.add(name);
+    // 実際のイラスト投稿数をプロキシで確認
+    const realIC = await fetchIllustCount(name, null);
+    if (realIC >= minIllust) {
+      const article = { name, desc: '', views: Math.floor(Math.random() * 5000000) + 100000, contentLength: Math.floor(Math.random() * 200000) + 10000, illustCount: realIC };
+      const card = articleToCard(article);
+      if (RO[card.rar] >= RO[minRarity]) {
+        found.push(card);
+      }
+    }
+  }
+
+  // まだ足りなければプロキシから記事を取得して投稿数チェック
+  if (found.length < count) {
+    for (let attempt = 0; attempt < 3 && found.length < count; attempt++) {
+      try {
+        const r18val = S.r18only ? 2 : S.r18 ? 1 : 0;
+        const resp = await fetch(`${PROXY_BASE}/random?count=10&r18=${r18val}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          for (const a of (data.articles || [])) {
+            if (found.length >= count) break;
+            if (usedNames.has(a.name) || owned.has(a.name)) continue;
+            usedNames.add(a.name);
+            const realIC = await fetchIllustCount(a.name, null);
+            if (realIC >= minIllust) {
+              a.illustCount = realIC;
+              const card = articleToCard(a);
+              if (RO[card.rar] >= RO[minRarity]) {
+                found.push(card);
+              }
+            }
+          }
+        }
+      } catch(e) {}
+    }
+  }
+
+  // それでも足りなければフォールバック（高投稿数タグを生成）
+  if (found.length < count) {
+    const fallbackHighTags = ["東方Project","初音ミク","ポケットモンスター","Fate/Grand Order","原神","艦これ","鬼滅の刃","ブルーアーカイブ","刀剣乱舞","NARUTO","ウマ娘プリティーダービー","呪術廻戦","ワンピース","ドラゴンボール","ホロライブ","進撃の巨人","ジョジョの奇妙な冒険","魔法少女まどか☆マギカ","ラブライブ!","新世紀エヴァンゲリオン","にじさんじ","セーラームーン","プリキュア","チェンソーマン","アイドルマスター"];
+    const shuffled = fallbackHighTags.filter(n => !usedNames.has(n) && !owned.has(n)).sort(() => Math.random() - 0.5);
+    for (const name of shuffled) {
+      if (found.length >= count) break;
+      const realIC = await fetchIllustCount(name, null);
+      const ic = realIC > 0 ? realIC : 200000 + Math.floor(Math.random() * 300000);
+      const article = { name, desc: '', views: Math.floor(Math.random() * 5000000) + 100000, contentLength: Math.floor(Math.random() * 200000) + 10000, illustCount: ic };
+      const card = articleToCard(article);
+      found.push(card);
+    }
+  }
+
+  return found;
+}
+
+// KNOWN_TAGSをfetchCardsOfMinRarityから参照できるようにする
+estimateIllustCount.KNOWN_TAGS = {
+  "東方Project":400000,"初音ミク":500000,"ポケットモンスター":300000,"Fate/Grand Order":250000,
+  "原神":300000,"艦これ":300000,"鬼滅の刃":200000,"ブルーアーカイブ":200000,"刀剣乱舞":200000,
+  "NARUTO":180000,"ウマ娘プリティーダービー":180000,"呪術廻戦":150000,"ワンピース":150000,
+  "博麗霊夢":150000,"ドラゴンボール":120000,"ホロライブ":120000,"進撃の巨人":100000,
+  "魔法少女まどか☆マギカ":100000,"ジョジョの奇妙な冒険":100000,"セーラームーン":80000,
+  "チェンソーマン":80000,"五条悟":80000,"SPY×FAMILY":60000,"ドラえもん":60000,
+  "推しの子":50000,"HUNTER×HUNTER":40000,"葬送のフリーレン":30000,
+  "UNDERTALE":25000,"NieR:Automata":30000,"ワンパンマン":15000,
+  "新世紀エヴァンゲリオン":90000,"プリキュア":80000,"ラブライブ!":120000,
+  "にじさんじ":80000,"アイドルマスター":150000,
+};
+
 async function startBattle() {
   if (!selectedBattleCardId) return;
   const pc = S.col.find(c => c.id === selectedBattleCardId);
@@ -764,27 +863,27 @@ async function startBattle() {
       const data = await resp.json();
       const candidates = (data.articles || []).filter(a => !owned.has(a.name) && a.name !== pc.name);
       if (candidates.length > 0) {
-        // ランダムに1つ選んで、同じレア度を強制
         const pick = candidates[Math.floor(Math.random() * candidates.length)];
-        ec = articleToCard(pick, pc.rar);
-        ec.rar = pc.rar; // 確実に同レア度にする
+        ec = articleToCard(pick);
+        // バトル用: 同じレア度を強制（バトルバランスのため）
+        ec.rar = pc.rar;
         ec.rl = RC[RO[pc.rar]].l;
       }
     }
   } catch(e) { console.warn('Enemy fetch failed:', e); }
 
-  // フォールバック: 同じレア度で生成
+  // フォールバック
   if (!ec) {
     const fallbacks = generateFallbackArticles(15);
     for (const fb of fallbacks) {
       if (fb.name === pc.name) continue;
-      ec = articleToCard(fb, pc.rar);
+      ec = articleToCard(fb);
       ec.rar = pc.rar;
       ec.rl = RC[RO[pc.rar]].l;
       break;
     }
     if (!ec) {
-      ec = articleToCard(generateFallbackArticles(1)[0], pc.rar);
+      ec = articleToCard(generateFallbackArticles(1)[0]);
       ec.rar = pc.rar;
       ec.rl = RC[RO[pc.rar]].l;
     }
