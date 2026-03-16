@@ -15,9 +15,9 @@
 <meta property="og:title" content="ピクシブ百科事典ガチャ">
 <meta property="og:description" content="ピクシブ百科事典の記事がランダムでカードに！レア度はpixivイラスト投稿数で決定。バトルやカード交換も楽しめるガチャゲーム。">
 <meta property="og:url" content="https://pixiv-gacha.vercel.app/">
-<meta property="og:image" content="https://pixiv-gacha.vercel.app/pix.png">
-<meta property="og:image:width" content="600">
-<meta property="og:image:height" content="600">
+<meta property="og:image" content="https://pixiv-gacha.vercel.app/ogp.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:site_name" content="ピクシブ百科事典ガチャ">
 <meta property="og:locale" content="ja_JP">
 
@@ -25,7 +25,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="ピクシブ百科事典ガチャ">
 <meta name="twitter:description" content="ピクシブ百科事典の記事がランダムでカードに！レア度はpixivイラスト投稿数で決定。バトルやカード交換も楽しめるガチャゲーム。">
-<meta name="twitter:image" content="https://pixiv-gacha.vercel.app/pix.png">
+<meta name="twitter:image" content="https://pixiv-gacha.vercel.app/ogp.png">
 
 <!-- Favicon -->
 <link rel="icon" type="image/png" href="pix.png">
@@ -41,7 +41,7 @@
   "url": "https://pixiv-gacha.vercel.app/",
   "applicationCategory": "Game",
   "operatingSystem": "All",
-  "image": "https://pixiv-gacha.vercel.app/pix.png",
+  "image": "https://pixiv-gacha.vercel.app/ogp.png",
   "inLanguage": "ja"
 }
 </script>
@@ -126,8 +126,10 @@
       <button onclick="sZ('rarity',this)">レア度</button>
       <button onclick="sZ('atk',this)">ATK</button>
       <button onclick="sZ('name',this)">名前</button>
+      <button class="z-refresh-btn" onclick="refreshAllCards()" id="zRefreshBtn">🔄</button>
     </div>
   </div>
+  <div class="z-refresh-status" id="zRefreshStatus"></div>
   <div class="z-grid" id="zGrid"></div>
   <div class="z-empty" id="zE">まだカードがありません。<br>ガチャを引いてみよう！</div>
 </div>
