@@ -725,13 +725,36 @@ async function fetchIllustCountsForCards(cards) {
   save();
 }
 
-// illustCountが0のカードを自動修正（バックグラウンド）
-async function autoFixZeroIllustCounts() {
-  const zeroCards = S.col.filter(c => !c.illustCount || c.illustCount <= 0);
-  if (zeroCards.length === 0) return;
+// illustCountが0、またはレア度とイラスト投稿数が矛盾しているカードを自動修正
+function needsFix(card) {
+  // illustCountが0 → 修正必要
+  if (!card.illustCount || card.illustCount <= 0) return true;
 
-  // 一度に最大10枚ずつ処理（サーバー負荷対策）
-  const batch = zeroCards.slice(0, 10);
+  // レア度とイラスト投稿数の整合性チェック（±1段階は許容）
+  const ic = card.illustCount;
+  const rarOrder = ['C','UC','R','SR','SSR','UR','LR'];
+  const currentIdx = rarOrder.indexOf(card.rar);
+  if (currentIdx < 0) return true;
+
+  // イラスト投稿数から本来のレア度を計算
+  let expectedRar = 'C';
+  if (ic >= 200000) expectedRar = 'LR';
+  else if (ic >= 80000) expectedRar = 'UR';
+  else if (ic >= 30000) expectedRar = 'SSR';
+  else if (ic >= 10000) expectedRar = 'SR';
+  else if (ic >= 3000)  expectedRar = 'R';
+  else if (ic >= 500)   expectedRar = 'UC';
+  const expectedIdx = rarOrder.indexOf(expectedRar);
+
+  // 2段階以上ズレていたら修正が必要
+  return Math.abs(currentIdx - expectedIdx) >= 2;
+}
+
+async function autoFixCards() {
+  const brokenCards = S.col.filter(needsFix);
+  if (brokenCards.length === 0) return;
+
+  const batch = brokenCards.slice(0, 10);
   let updated = 0;
 
   const promises = batch.map(async (card) => {
@@ -741,6 +764,26 @@ async function autoFixZeroIllustCounts() {
         const data = await resp.json();
         if (data.count > 0) {
           card.illustCount = data.count;
+          // レア度を正しく再計算（ランダム揺れなし）
+          const ic = data.count;
+          let correctRar = 'C';
+          if (ic >= 200000) correctRar = 'LR';
+          else if (ic >= 80000) correctRar = 'UR';
+          else if (ic >= 30000) correctRar = 'SSR';
+          else if (ic >= 10000) correctRar = 'SR';
+          else if (ic >= 3000)  correctRar = 'R';
+          else if (ic >= 500)   correctRar = 'UC';
+
+          // 現在のレア度と2段階以上ズレていたらレア度も修正
+          const rarOrder = ['C','UC','R','SR','SSR','UR','LR'];
+          if (Math.abs(rarOrder.indexOf(card.rar) - rarOrder.indexOf(correctRar)) >= 2) {
+            card.rar = correctRar;
+            card.rl = RC[RO[correctRar]].l;
+            // ATK/DEFも再計算
+            const stats = calcStats(card.views || 0, card.contentLength || 0, correctRar, ic);
+            card.atk = stats.atk;
+            card.def = stats.def;
+          }
           updated++;
         }
       }
@@ -750,13 +793,13 @@ async function autoFixZeroIllustCounts() {
 
   if (updated > 0) {
     save();
-    console.log(`autoFix: ${updated}/${batch.length}枚のイラスト投稿数を更新`);
+    console.log(`autoFix: ${updated}/${batch.length}枚を修正`);
   }
 
   // まだ残りがあれば5秒後に次のバッチ
-  const remaining = S.col.filter(c => !c.illustCount || c.illustCount <= 0);
+  const remaining = S.col.filter(needsFix);
   if (remaining.length > 0) {
-    setTimeout(autoFixZeroIllustCounts, 5000);
+    setTimeout(autoFixCards, 5000);
   }
 }
 
@@ -1411,7 +1454,7 @@ if (S.lt) {
   if (r > 0 && S.pk < S.mx) { S.pk = Math.min(S.mx, S.pk + r); S.lt = Date.now(); save(); updPk(); }
 }
 // 起動時にillustCount=0のカードを自動修正
-setTimeout(autoFixZeroIllustCounts, 2000);
+setTimeout(autoFixCards, 2000);
 
 // ============================================================
 // コナミコマンド
