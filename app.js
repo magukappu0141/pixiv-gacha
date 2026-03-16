@@ -690,6 +690,41 @@ async function fetchIllustCountsForCards(cards) {
   save();
 }
 
+// illustCountが0のカードを自動修正（バックグラウンド）
+async function autoFixZeroIllustCounts() {
+  const zeroCards = S.col.filter(c => !c.illustCount || c.illustCount <= 0);
+  if (zeroCards.length === 0) return;
+
+  // 一度に最大10枚ずつ処理（サーバー負荷対策）
+  const batch = zeroCards.slice(0, 10);
+  let updated = 0;
+
+  const promises = batch.map(async (card) => {
+    try {
+      const resp = await fetch(`${PROXY_BASE}/illustcount?tag=${encodeURIComponent(card.name)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.count > 0) {
+          card.illustCount = data.count;
+          updated++;
+        }
+      }
+    } catch(e) {}
+  });
+  await Promise.allSettled(promises);
+
+  if (updated > 0) {
+    save();
+    console.log(`autoFix: ${updated}/${batch.length}枚のイラスト投稿数を更新`);
+  }
+
+  // まだ残りがあれば5秒後に次のバッチ
+  const remaining = S.col.filter(c => !c.illustCount || c.illustCount <= 0);
+  if (remaining.length > 0) {
+    setTimeout(autoFixZeroIllustCounts, 5000);
+  }
+}
+
 async function startBattle() {
   if (!selectedBattleCardId) return;
   const pc = S.col.find(c => c.id === selectedBattleCardId);
@@ -1255,6 +1290,8 @@ if (S.lt) {
   const r = Math.floor((Date.now() - S.lt) / 60000);
   if (r > 0 && S.pk < S.mx) { S.pk = Math.min(S.mx, S.pk + r); S.lt = Date.now(); save(); updPk(); }
 }
+// 起動時にillustCount=0のカードを自動修正
+setTimeout(autoFixZeroIllustCounts, 2000);
 
 // ============================================================
 // コナミコマンド
