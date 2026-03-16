@@ -543,7 +543,74 @@ setInterval(() => {
 // ZUKAN
 // ============================================================
 let zS = 'newest';
-function sZ(t, b) { zS = t; document.querySelectorAll('.z-sort button').forEach(x => x.classList.remove('active')); if (b) b.classList.add('active'); renZ(); }
+function sZ(t, b) { zS = t; document.querySelectorAll('.z-sort button:not(.z-refresh-btn)').forEach(x => x.classList.remove('active')); if (b) b.classList.add('active'); renZ(); }
+
+let isRefreshing = false;
+async function refreshAllCards() {
+  if (isRefreshing) return;
+  if (S.col.length === 0) return;
+
+  isRefreshing = true;
+  const btn = document.getElementById('zRefreshBtn');
+  const status = document.getElementById('zRefreshStatus');
+  if (btn) btn.classList.add('spinning');
+
+  const total = S.col.length;
+  let done = 0;
+  let fixed = 0;
+
+  // 5枚ずつバッチ処理
+  for (let i = 0; i < S.col.length; i += 5) {
+    const batch = S.col.slice(i, i + 5);
+    const promises = batch.map(async (card) => {
+      try {
+        const resp = await fetch(`${PROXY_BASE}/illustcount?tag=${encodeURIComponent(card.name)}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.count > 0) {
+            const oldIC = card.illustCount;
+            const oldRar = card.rar;
+            card.illustCount = data.count;
+
+            // レア度を再計算
+            const ic = data.count;
+            let correctRar = 'C';
+            if (ic >= 200000) correctRar = 'LR';
+            else if (ic >= 80000) correctRar = 'UR';
+            else if (ic >= 30000) correctRar = 'SSR';
+            else if (ic >= 10000) correctRar = 'SR';
+            else if (ic >= 3000)  correctRar = 'R';
+            else if (ic >= 500)   correctRar = 'UC';
+
+            // ±1段階は許容、2段階以上ズレていたら修正
+            const rarOrder = ['C','UC','R','SR','SSR','UR','LR'];
+            if (Math.abs(rarOrder.indexOf(card.rar) - rarOrder.indexOf(correctRar)) >= 2) {
+              card.rar = correctRar;
+              card.rl = RC[RO[correctRar]].l;
+              const stats = calcStats(card.views || 0, card.contentLength || 0, correctRar, ic);
+              card.atk = stats.atk;
+              card.def = stats.def;
+            }
+
+            if (oldIC !== card.illustCount || oldRar !== card.rar) fixed++;
+          }
+        }
+      } catch(e) {}
+      done++;
+    });
+    await Promise.allSettled(promises);
+    if (status) status.textContent = `更新中... ${done}/${total}枚 (${fixed}枚修正)`;
+  }
+
+  save();
+  if (status) status.textContent = `✅ ${total}枚を確認、${fixed}枚を修正しました`;
+  if (btn) btn.classList.remove('spinning');
+  isRefreshing = false;
+  renZ();
+
+  // 3秒後にステータスを消す
+  setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+}
 
 function renZ() {
   dedupeCollection();
@@ -894,41 +961,52 @@ async function startBattle() {
   if (!pc) return;
 
   const btn = document.getElementById('battleBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '対戦相手を探しています...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '同じレア度の対戦相手を探しています...'; }
 
-  // 同じレア度の敵を1体取得
+  // 同じレア度の敵を探す（実際にそのレア度になるカードを取得）
   let ec = null;
+  const targetRarity = pc.rar;
+
   try {
-    const owned = getOwnedNames();
-    const r18val = S.r18only ? 2 : S.r18 ? 1 : 0;
-    const resp = await fetch(`${PROXY_BASE}/random?count=5&r18=${r18val}`);
-    if (resp.ok) {
-      const data = await resp.json();
-      const candidates = (data.articles || []).filter(a => !owned.has(a.name) && a.name !== pc.name);
-      if (candidates.length > 0) {
-        const pick = candidates[Math.floor(Math.random() * candidates.length)];
-        ec = articleToCard(pick);
-        // バトル用: 同じレア度を強制（バトルバランスのため）
-        ec.rar = pc.rar;
-        ec.rl = RC[RO[pc.rar]].l;
-      }
+    const results = await fetchCardsOfMinRarity(targetRarity, 3);
+    // 取得した中からtargetRarityと完全一致するものを選ぶ
+    const exact = results.filter(c => c.rar === targetRarity && c.name !== pc.name);
+    if (exact.length > 0) {
+      ec = exact[Math.floor(Math.random() * exact.length)];
+    } else if (results.length > 0) {
+      // 完全一致がなければ最も近いものを使う
+      ec = results.find(c => c.name !== pc.name) || results[0];
     }
   } catch(e) { console.warn('Enemy fetch failed:', e); }
 
   // フォールバック
   if (!ec) {
-    const fallbacks = generateFallbackArticles(15);
+    // KNOWN_TAGSから該当レア度のものを直接探す
+    const ranges = { LR:[200000,500000], UR:[80000,200000], SSR:[30000,80000], SR:[10000,30000], R:[3000,10000], UC:[500,3000], C:[50,500] };
+    const [minIC, maxIC] = ranges[targetRarity] || [50, 500];
+    const knownEntries = Object.entries(estimateIllustCount.KNOWN_TAGS || {})
+      .filter(([name, ic]) => ic >= minIC && ic < (maxIC * 2) && name !== pc.name)
+      .sort(() => Math.random() - 0.5);
+
+    for (const [name, ic] of knownEntries) {
+      const article = { name, desc: '', views: Math.floor(Math.random() * 5000000) + 10000, contentLength: Math.floor(Math.random() * 100000) + 5000, illustCount: ic };
+      const card = articleToCard(article);
+      if (card.rar === targetRarity) { ec = card; break; }
+    }
+  }
+
+  // 最終フォールバック
+  if (!ec) {
+    const fallbacks = generateFallbackArticles(20);
     for (const fb of fallbacks) {
       if (fb.name === pc.name) continue;
-      ec = articleToCard(fb);
-      ec.rar = pc.rar;
-      ec.rl = RC[RO[pc.rar]].l;
-      break;
+      const card = articleToCard(fb);
+      if (card.rar === targetRarity) { ec = card; break; }
     }
+    // それでも見つからなければ一番近いものを使う（レア度は変えない）
     if (!ec) {
-      ec = articleToCard(generateFallbackArticles(1)[0]);
-      ec.rar = pc.rar;
-      ec.rl = RC[RO[pc.rar]].l;
+      const fb = generateFallbackArticles(1)[0];
+      ec = articleToCard(fb);
     }
   }
 
