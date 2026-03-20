@@ -192,12 +192,6 @@ function generateFallbackArticles(count) {
 function articleToCard(article) {
   let ic = article.illustCount || 0;
   let rarity = determineRarity(article.views, article.contentLength, ic);
-  // illustCountが0の場合、レア度から推定値を入れる
-  if (ic <= 0) {
-    const ranges = { LR:[200000,500000], UR:[80000,200000], SSR:[30000,80000], SR:[10000,30000], R:[3000,10000], UC:[500,3000], C:[50,500] };
-    const [min, max] = ranges[rarity] || [50, 500];
-    ic = Math.floor(min + Math.random() * (max - min));
-  }
   const stats = calcStats(article.views, article.contentLength, rarity, ic);
   const flav = RO[rarity] >= 4 ? FL[Math.floor(Math.random() * FL.length)] : null;
   // 予測検索キャッシュに追加
@@ -233,7 +227,7 @@ function cardHTML(c, w, clickable) {
       <div class="c-st"><div class="c-stl atk">ATK</div><div class="c-stv atk">${c.atk.toLocaleString()}</div></div>
       <div class="c-st"><div class="c-stl def">DEF</div><div class="c-stv def">${c.def.toLocaleString()}</div></div>
     </div>
-    <div class="c-illust-row"><span class="c-illust-label">🎨 イラスト投稿数</span><span class="c-illust-val">${ic.toLocaleString()} 件</span></div>
+    <div class="c-illust-row"><span class="c-illust-label">🎨 イラスト投稿数</span><span class="c-illust-val">${ic > 0 ? ic.toLocaleString() + ' 件' : '取得中...'}</span></div>
   </div>`;
 }
 
@@ -774,6 +768,7 @@ function estimateIllustCount(tagName, cardData) {
 
 // カード配列のillustCountをプロキシから一括取得して更新
 async function fetchIllustCountsForCards(cards) {
+  let updated = 0;
   const promises = cards.map(async (card) => {
     try {
       const resp = await fetch(`${PROXY_BASE}/illustcount?tag=${encodeURIComponent(card.name)}`);
@@ -781,15 +776,52 @@ async function fetchIllustCountsForCards(cards) {
         const data = await resp.json();
         if (data.count > 0) {
           card.illustCount = data.count;
+
+          // レア度を正しく再計算
+          let correctRar = 'C';
+          const ic = data.count;
+          if (ic >= 200000) correctRar = 'LR';
+          else if (ic >= 80000) correctRar = 'UR';
+          else if (ic >= 30000) correctRar = 'SSR';
+          else if (ic >= 10000) correctRar = 'SR';
+          else if (ic >= 3000)  correctRar = 'R';
+          else if (ic >= 500)   correctRar = 'UC';
+
+          // レア度がずれていたら修正
+          const rarOrder = ['C','UC','R','SR','SSR','UR','LR'];
+          if (Math.abs(rarOrder.indexOf(card.rar) - rarOrder.indexOf(correctRar)) >= 2) {
+            card.rar = correctRar;
+            card.rl = RC[RO[correctRar]].l;
+            const stats = calcStats(card.views || 0, card.contentLength || 0, correctRar, ic);
+            card.atk = stats.atk;
+            card.def = stats.def;
+          }
+
           // コレクション内の同名カードも更新
           const inCol = S.col.find(c => c.name === card.name);
-          if (inCol) inCol.illustCount = data.count;
+          if (inCol) {
+            inCol.illustCount = data.count;
+            if (Math.abs(rarOrder.indexOf(inCol.rar) - rarOrder.indexOf(correctRar)) >= 2) {
+              inCol.rar = correctRar;
+              inCol.rl = RC[RO[correctRar]].l;
+              const stats = calcStats(inCol.views || 0, inCol.contentLength || 0, correctRar, ic);
+              inCol.atk = stats.atk;
+              inCol.def = stats.def;
+            }
+          }
+          updated++;
         }
       }
     } catch(e) {}
   });
   await Promise.allSettled(promises);
-  save();
+  if (updated > 0) {
+    save();
+    // カードビューアーが表示中なら再描画
+    if (document.getElementById('cardViewer').style.display !== 'none') {
+      renderViewer();
+    }
+  }
 }
 
 // illustCountが0、またはレア度とイラスト投稿数が矛盾しているカードを自動修正
